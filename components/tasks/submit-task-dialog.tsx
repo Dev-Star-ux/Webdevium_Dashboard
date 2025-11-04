@@ -12,9 +12,10 @@ interface SubmitTaskDialogProps {
   isOpen: boolean
   onClose: () => void
   clientId: string
+  onTaskCreated?: () => void
 }
 
-export function SubmitTaskDialog({ isOpen, onClose, clientId }: SubmitTaskDialogProps) {
+export function SubmitTaskDialog({ isOpen, onClose, clientId, onTaskCreated }: SubmitTaskDialogProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium')
@@ -59,8 +60,13 @@ export function SubmitTaskDialog({ isOpen, onClose, clientId }: SubmitTaskDialog
         setPriority('medium')
         setSuccess(false)
         onClose()
-        // Refresh the page to show new task
-        router.refresh()
+        // Call the callback to refresh tasks
+        if (onTaskCreated) {
+          onTaskCreated()
+        } else {
+          // Fallback to router refresh
+          router.refresh()
+        }
       }, 1500)
       
     } catch (err: any) {

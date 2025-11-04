@@ -47,7 +47,7 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const schema = z.object({
     client_id: z.string().uuid(),
-    status: z.literal('queued'),
+    status: z.enum(['queued', 'in_progress', 'done']),
     order: z.array(z.object({ id: z.string().uuid(), position: z.number().int().min(0) }))
   })
   const parsed = schema.safeParse(body)
@@ -55,7 +55,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { client_id, order } = parsed.data
+  const { client_id, status, order } = parsed.data
   const ids = order.map(o => o.id)
 
   const { data: tasks, error: fetchErr } = await supabase
@@ -65,8 +65,8 @@ export async function PATCH(req: NextRequest) {
 
   if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 400 })
 
-  if (!tasks || !tasks.every(t => t.client_id === client_id && t.status === 'queued')) {
-    return NextResponse.json({ error: 'Only queued tasks of the same client can be reordered' }, { status: 400 })
+  if (!tasks || !tasks.every(t => t.client_id === client_id && t.status === status)) {
+    return NextResponse.json({ error: `Only ${status} tasks of the same client can be reordered` }, { status: 400 })
   }
 
   const updates = order.map(o => ({ id: o.id, position: o.position }))

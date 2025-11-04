@@ -5,7 +5,8 @@ import { getServerSupabase } from '@/lib/supabase/server'
 const updateSchema = z.object({
   est_hours: z.number().int().min(0).optional(),
   status: z.enum(['queued','in_progress','done']).optional(),
-  assigned_dev_id: z.string().uuid().nullable().optional()
+  assigned_dev_id: z.string().uuid().nullable().optional(),
+  position: z.number().int().min(0).optional()
 }).refine((data) => Object.keys(data).length > 0, { message: 'No fields to update' })
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
