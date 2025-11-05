@@ -5,9 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Plus, MoreHorizontal, Paperclip, Calendar, User } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { SubmitTaskDialog } from '@/components/tasks/submit-task-dialog'
+import { EditTaskDialog } from '@/components/tasks/edit-task-dialog'
 import { useRouter } from 'next/navigation'
 import {
   DndContext,
@@ -40,8 +41,11 @@ type Task = {
   created_at: string
   completed_at: string | null
   assigned_dev_id: string | null
+  est_hours: number | null
+  hours_spent: number | null
   position?: number
   assigned_dev?: {
+    id?: string
     email: string
   }
 }
@@ -49,9 +53,10 @@ type Task = {
 interface TaskCardProps {
   task: any
   canReorder?: boolean
+  onEdit?: (task: any) => void
 }
 
-function TaskCard({ task, canReorder = false }: TaskCardProps) {
+function TaskCard({ task, canReorder = false, onEdit }: TaskCardProps) {
   const {
     attributes,
     listeners,
@@ -84,12 +89,79 @@ function TaskCard({ task, canReorder = false }: TaskCardProps) {
     return priority.charAt(0).toUpperCase() + priority.slice(1).toLowerCase()
   }
 
+  // Track click vs drag using refs
+  const clickStartPos = useRef<{ x: number; y: number } | null>(null)
+  const wasDragging = useRef(false)
+
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Don't open edit if clicking the menu button
+    if ((e.target as HTMLElement).closest('button')) {
+      return
+    }
+    
+    // If we were dragging, don't open edit
+    if (wasDragging.current) {
+      wasDragging.current = false
+      return
+    }
+    
+    // Check if mouse moved during click
+    if (clickStartPos.current) {
+      const deltaX = Math.abs(e.clientX - clickStartPos.current.x)
+      const deltaY = Math.abs(e.clientY - clickStartPos.current.y)
+      
+      // If moved more than 8px (same as drag activation), it was a drag
+      if (deltaX > 8 || deltaY > 8) {
+        clickStartPos.current = null
+        return
+      }
+    }
+    
+    if (onEdit) {
+      onEdit(task)
+    }
+    clickStartPos.current = null
+  }
+
+  const handleMenuClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (onEdit) {
+      onEdit(task)
+    }
+  }
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Only track if not clicking a button
+    if (!(e.target as HTMLElement).closest('button')) {
+      clickStartPos.current = { x: e.clientX, y: e.clientY }
+      wasDragging.current = false
+    }
+  }
+
+  const handleMouseMove = () => {
+    // If mouse moves, mark as dragging
+    if (clickStartPos.current) {
+      wasDragging.current = true
+    }
+  }
+
   const cardContent = (
-    <Card className="mb-3 cursor-pointer hover:shadow-md transition-shadow">
+    <Card 
+      className="mb-3 cursor-pointer hover:shadow-md transition-shadow"
+      onClick={handleCardClick}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+    >
       <CardContent className="p-4">
         <div className="flex justify-between items-start mb-2">
           <h4 className="font-medium text-sm">{task.title}</h4>
-          <Button variant="ghost" size="icon" className="h-6 w-6">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-6 w-6"
+            onClick={handleMenuClick}
+          >
             <MoreHorizontal className="h-3 w-3" />
           </Button>
         </div>
@@ -141,9 +213,10 @@ interface KanbanColumnProps {
   canReorder?: boolean
   count: number
   status: 'queued' | 'in_progress' | 'done'
+  onEditTask?: (task: any) => void
 }
 
-function KanbanColumn({ title, tasks, canReorder = false, count, status }: KanbanColumnProps) {
+function KanbanColumn({ title, tasks, canReorder = false, count, status, onEditTask }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: status,
   })
@@ -172,7 +245,12 @@ function KanbanColumn({ title, tasks, canReorder = false, count, status }: Kanba
         {taskIds.length > 0 ? (
           <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
             {tasks.map((task) => (
-              <TaskCard key={task.id} task={task} canReorder={canReorder} />
+              <TaskCard 
+                key={task.id} 
+                task={task} 
+                canReorder={canReorder}
+                onEdit={onEditTask}
+              />
             ))}
           </SortableContext>
         ) : (
@@ -190,26 +268,38 @@ export default function TasksPage() {
   const [clientId, setClientId] = useState<string | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [submitTaskOpen, setSubmitTaskOpen] = useState(false)
+  const [editTaskOpen, setEditTaskOpen] = useState(false)
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [userRole, setUserRole] = useState<'admin' | 'pm' | 'dev' | 'client' | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
   const router = useRouter()
   const supabase = getBrowserSupabase()
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Only activate drag if pointer moves 8px
+      },
+    }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   )
 
-  // Fetch tasks from Supabase
+  // Fetch user role and tasks
   useEffect(() => {
     async function loadTasks() {
       setLoading(true)
       try {
-        // Get client membership
+        // Get current user
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+
+        // Get client membership with role
         const { data: membership } = await supabase
           .from('client_members')
-          .select('client_id')
+          .select('client_id, role')
+          .eq('user_id', user.id)
           .limit(1)
           .maybeSingle()
 
@@ -222,13 +312,14 @@ export default function TasksPage() {
         }
 
         setClientId(membership.client_id)
+        setUserRole(membership.role as 'admin' | 'pm' | 'dev' | 'client' | null)
 
         // Fetch tasks with assigned dev info
         const { data: tasksData, error } = await supabase
           .from('tasks')
           .select(`
             *,
-            assigned_dev:users!tasks_assigned_dev_id_fkey(email)
+            assigned_dev:users!tasks_assigned_dev_id_fkey(id, email)
           `)
           .eq('client_id', membership.client_id)
           .order('position', { ascending: true })
@@ -248,6 +339,11 @@ export default function TasksPage() {
 
     loadTasks()
   }, [supabase])
+
+  const onEditTask = (task: Task) => {
+    setSelectedTask(task)
+    setEditTaskOpen(true)
+  }
 
   // Priority sorting helper: high = 3, medium = 2, low = 1
   const getPriorityValue = (priority: string) => {
@@ -553,6 +649,23 @@ export default function TasksPage() {
           />
         )}
 
+        {/* Edit Task Dialog */}
+        {clientId && selectedTask && (
+          <EditTaskDialog
+            isOpen={editTaskOpen}
+            onClose={() => {
+              setEditTaskOpen(false)
+              setSelectedTask(null)
+            }}
+            task={selectedTask}
+            clientId={clientId}
+            userRole={userRole}
+            onTaskUpdated={() => {
+              loadTasks()
+            }}
+          />
+        )}
+
         {/* Loading State */}
         {loading && (
           <Card>
@@ -578,6 +691,7 @@ export default function TasksPage() {
                   canReorder={true}
                   count={queuedTasks.length}
                   status="queued"
+                  onEditTask={onEditTask}
                 />
                 <KanbanColumn 
                   title="In Progress" 
@@ -585,6 +699,7 @@ export default function TasksPage() {
                   canReorder={true}
                   count={inProgressTasks.length}
                   status="in_progress"
+                  onEditTask={onEditTask}
                 />
                 <KanbanColumn 
                   title="Done" 
@@ -592,6 +707,7 @@ export default function TasksPage() {
                   canReorder={true}
                   count={doneTasks.length}
                   status="done"
+                  onEditTask={onEditTask}
                 />
               </div>
               
