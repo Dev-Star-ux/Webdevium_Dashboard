@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { X, Trash2, Save } from 'lucide-react'
+import { X, Trash2, Save, Clock } from 'lucide-react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
+import { LogHoursDialog } from './log-hours-dialog'
 
 type Task = {
   id: string
@@ -54,6 +55,8 @@ export function EditTaskDialog({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [showLogHours, setShowLogHours] = useState(false)
+  const [showLogHoursButton, setShowLogHoursButton] = useState(false)
   const supabase = getBrowserSupabase()
 
   const isPMOrAdmin = userRole === 'admin' || userRole === 'pm'
@@ -143,6 +146,17 @@ export function EditTaskDialog({
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to update task')
+      }
+
+      // If status changed to 'done', show log hours dialog
+      if (updateData.status === 'done' && task.status !== 'done' && isPMOrAdmin) {
+        setSuccess(false)
+        onClose()
+        setShowLogHours(true)
+        if (onTaskUpdated) {
+          onTaskUpdated()
+        }
+        return
       }
 
       setSuccess(true)
@@ -361,6 +375,31 @@ export function EditTaskDialog({
                       </p>
                     </div>
                   </div>
+
+                  {/* Log Hours Button for Done Tasks */}
+                  {status === 'done' && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-blue-900">Log Hours</p>
+                          <p className="text-xs text-blue-700">
+                            {task.hours_spent ? `Currently logged: ${task.hours_spent} hours` : 'No hours logged yet'}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowLogHours(true)}
+                          disabled={loading || deleting}
+                          className="bg-white"
+                        >
+                          <Clock className="h-4 w-4 mr-2" />
+                          {task.hours_spent ? 'Add Hours' : 'Log Hours'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -400,6 +439,30 @@ export function EditTaskDialog({
           </form>
         </CardContent>
       </Card>
+
+      {/* Log Hours Dialog - shown when marking task as done */}
+      {showLogHours && task && (
+        <LogHoursDialog
+          isOpen={showLogHours}
+          onClose={() => {
+            setShowLogHours(false)
+            if (onTaskUpdated) {
+              onTaskUpdated()
+            }
+          }}
+          task={{
+            id: task.id,
+            title: task.title,
+            client_id: clientId,
+          }}
+          onHoursLogged={() => {
+            setShowLogHours(false)
+            if (onTaskUpdated) {
+              onTaskUpdated()
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

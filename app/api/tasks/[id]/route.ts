@@ -31,6 +31,33 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     delete updateData.completed_at
   }
   
+  // Enforce one active task at a time rule
+  if (updateData.status === 'in_progress') {
+    // Get the task's client_id
+    const { data: currentTask } = await supabase
+      .from('tasks')
+      .select('client_id')
+      .eq('id', id)
+      .single()
+    
+    if (currentTask?.client_id) {
+      // Check if there's already an in_progress task for this client
+      const { data: existingActive } = await supabase
+        .from('tasks')
+        .select('id, title')
+        .eq('client_id', currentTask.client_id)
+        .eq('status', 'in_progress')
+        .neq('id', id)
+        .maybeSingle()
+      
+      if (existingActive) {
+        return NextResponse.json({ 
+          error: `Only one active task allowed. "${existingActive.title}" is currently in progress. Please complete or queue it first.` 
+        }, { status: 400 })
+      }
+    }
+  }
+  
   if (updateData.status === 'done') {
     // Only set completed_at if it's not already set
     const { data: currentTask } = await supabase

@@ -58,19 +58,22 @@ function useDashboardData() {
 
       setClientId(membership.client_id)
 
-      const [usageRes, tasksRes, plansRes, statsRes] = await Promise.all([
-        supabase!.from('client_usage').select('hours_monthly,hours_used_month,usage_percent,plan_code').eq('client_id', membership.client_id).single(),
+      const [usageRes, tasksRes, clientRes, statsRes] = await Promise.all([
+        supabase!.from('v_client_usage').select('hours_monthly,hours_used,pct_used').eq('client_id', membership.client_id).maybeSingle(),
         supabase!.from('tasks').select('id,title,status,created_at,completed_at').eq('client_id', membership.client_id).order('created_at', { ascending: false }).limit(10),
-        supabase!.from('plans').select('code,name'),
+        supabase!.from('clients').select('plan_code, plans!inner(name)').eq('id', membership.client_id).single(),
         supabase!.rpc('calculate_task_stats', { p_client_id: membership.client_id }).maybeSingle()
       ])
 
       if (usageRes.data) {
-        setUsagePercent(Number(usageRes.data.usage_percent ?? 0))
-        // Map plan code to name when possible
-        const planCode: string | undefined = (usageRes.data as any).plan_code
-        const plan = plansRes.data?.find(p => p.code === planCode)
-        setPlanName(plan?.name ?? planCode ?? '')
+        setUsagePercent(Number(usageRes.data.pct_used ?? 0))
+      }
+      
+      // Get plan name from clients query
+      if (clientRes.data) {
+        const planName = (clientRes.data as any).plans?.name
+        const planCode = (clientRes.data as any).plan_code
+        setPlanName(planName || planCode || '')
       }
 
       if (tasksRes.data) setRecentTasks(tasksRes.data as any)
@@ -86,7 +89,7 @@ function useDashboardData() {
   }, [])
 
   const usageStatus: UsageStatus = useMemo(() => {
-    if (usagePercent >= 90) return 'Exceeded'
+    if (usagePercent >= 100) return 'Exceeded'
     if (usagePercent >= 80) return 'Approaching Limit'
     return 'On Track'
   }, [usagePercent])
@@ -103,7 +106,7 @@ function useDashboardData() {
   }
 }
 
-function UsageMeter({ usagePercent, usageStatus }: { usagePercent: number; usageStatus: UsageStatus }) {
+function UsageMeter({ usagePercent, usageStatus, router }: { usagePercent: number; usageStatus: UsageStatus; router: any }) {
   
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -115,7 +118,7 @@ function UsageMeter({ usagePercent, usageStatus }: { usagePercent: number; usage
   }
 
   const getProgressColor = (usage: number) => {
-    if (usage >= 90) return 'bg-red-500'
+    if (usage >= 100) return 'bg-red-500'
     if (usage >= 80) return 'bg-yellow-500'
     return 'bg-green-500'
   }
@@ -139,13 +142,29 @@ function UsageMeter({ usagePercent, usageStatus }: { usagePercent: number; usage
             <span>Used</span>
             <span>{usagePercent}% of plan capacity</span>
           </div>
-          <Progress value={usagePercent} className="h-3" />
+          <Progress value={Math.min(usagePercent, 100)} className="h-3" />
           {usagePercent >= 80 && (
-            <div className="flex items-center space-x-2 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-              <AlertTriangle className="h-4 w-4 text-yellow-600" />
-              <p className="text-sm text-yellow-800">
-                You're approaching your plan limit. Consider upgrading for more capacity.
-              </p>
+            <div className="flex items-center justify-between p-4 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg border border-yellow-200">
+              <div className="flex items-center space-x-3">
+                <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                <div>
+                  <p className="text-sm font-semibold text-yellow-900">
+                    {usagePercent >= 100 ? 'Usage Limit Exceeded' : 'Approaching Usage Limit'}
+                  </p>
+                  <p className="text-xs text-yellow-700 mt-1">
+                    {usagePercent >= 100 
+                      ? 'You\'ve exceeded your plan capacity. Upgrade to continue receiving service.'
+                      : 'You\'re at ' + Math.round(usagePercent) + '% of your plan capacity. Consider upgrading for more hours.'}
+                  </p>
+                </div>
+              </div>
+              <Button 
+                onClick={() => router.push('/billing')}
+                size="sm"
+                className="bg-yellow-600 hover:bg-yellow-700 text-white"
+              >
+                Upgrade Plan
+              </Button>
             </div>
           )}
         </div>
@@ -175,7 +194,7 @@ function StatsCards({ planName, tasksCompleted, avgTurnaround }: { planName: str
           <Clock className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{avgTurnaround} days</div>
+          <div className="text-2xl font-bold">{avgTurnaround.toFixed(1)} days</div>
           <p className="text-xs text-muted-foreground">Per task</p>
         </CardContent>
       </Card>
@@ -262,7 +281,7 @@ export default function DashboardPage() {
         )}
 
         {/* Usage Meter */}
-        <UsageMeter usagePercent={usagePercent} usageStatus={usageStatus} />
+        <UsageMeter usagePercent={usagePercent} usageStatus={usageStatus} router={router} />
 
         {/* Stats Cards */}
         <StatsCards planName={planName} tasksCompleted={tasksCompletedThisMonth} avgTurnaround={avgTurnaroundDays} />

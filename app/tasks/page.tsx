@@ -401,6 +401,14 @@ export default function TasksPage() {
     const draggedTask = tasks.find(t => t.id === active.id)
     if (!draggedTask) return
 
+    // Restriction: Clients can only reorder tasks in "queued" status
+    // PM/Admin can drag across all columns
+    const isClient = userRole === 'client'
+    if (isClient && draggedTask.status !== 'queued') {
+      // Client tried to drag a non-queued task - revert
+      return
+    }
+
     // Check if dropped on a column (status change) - this is the primary case
     const targetStatus = ['queued', 'in_progress', 'done'].includes(over.id as string) 
       ? (over.id as string)
@@ -408,6 +416,12 @@ export default function TasksPage() {
     
     // If dropped directly on a column (including empty areas)
     if (targetStatus && draggedTask.status !== targetStatus) {
+      // Restriction: Clients can only move tasks within "queued" status
+      if (isClient && targetStatus !== 'queued') {
+        // Client tried to move to non-queued column - revert
+        return
+      }
+      
       const newStatus = targetStatus as 'queued' | 'in_progress' | 'done'
       
       // Get tasks in the target status (including the moved task)
@@ -478,6 +492,12 @@ export default function TasksPage() {
     if (targetTask) {
       // If dropped on a task with different status, move to that status
       if (draggedTask.status !== targetTask.status) {
+        // Restriction: Clients can only move tasks within "queued" status
+        if (isClient && targetTask.status !== 'queued') {
+          // Client tried to move to non-queued column - revert
+          return
+        }
+        
         const newStatus = targetTask.status
         
         // Get tasks in the target status (excluding the dragged task)

@@ -75,6 +75,36 @@ export default function OnboardingPage() {
 
       const selectedPlan = planDetails[plan]
 
+      // Step 0: Ensure user exists in public.users table
+      // Get user email from auth
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (!authUser) {
+        throw new Error('User not authenticated')
+      }
+
+      // Check if user exists in public.users, create if not
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle()
+
+      if (!existingUser) {
+        // Create user record in public.users
+        const { error: userError } = await supabase
+          .from('users')
+          .insert({
+            id: userId,
+            email: authUser.email || '',
+            role: 'client', // Default role, can be changed later
+          })
+
+        if (userError) {
+          console.error('User creation error:', userError)
+          throw new Error(`Failed to create user record: ${userError.message}`)
+        }
+      }
+
       // Step 1: Create client
       const { data: client, error: clientError } = await supabase
         .from('clients')

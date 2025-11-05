@@ -4,9 +4,108 @@ import { DashboardLayout } from '@/components/layout/dashboard-layout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { CreditCard, Download, Calendar, DollarSign } from 'lucide-react'
+import { Progress } from '@/components/ui/progress'
+import { CreditCard, Download, Calendar, DollarSign, AlertTriangle, ExternalLink } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { getBrowserSupabase } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
 
 export default function BillingPage() {
+  const [loading, setLoading] = useState(true)
+  const [clientId, setClientId] = useState<string | null>(null)
+  const [planName, setPlanName] = useState<string>('')
+  const [usagePercent, setUsagePercent] = useState<number>(0)
+  const [hoursUsed, setHoursUsed] = useState<number>(0)
+  const [hoursMonthly, setHoursMonthly] = useState<number>(0)
+  const [cycleStart, setCycleStart] = useState<string>('')
+  const [portalLoading, setPortalLoading] = useState(false)
+  const router = useRouter()
+  const supabase = getBrowserSupabase()
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      try {
+        // Get client membership
+        const { data: membership } = await supabase
+          .from('client_members')
+          .select('client_id')
+          .limit(1)
+          .maybeSingle()
+
+        if (!membership?.client_id) {
+          router.push('/onboarding')
+          return
+        }
+
+        setClientId(membership.client_id)
+
+        // Fetch usage and client data
+        const [usageRes, clientRes] = await Promise.all([
+          supabase
+            .from('v_client_usage')
+            .select('hours_monthly,hours_used,pct_used')
+            .eq('client_id', membership.client_id)
+            .maybeSingle(),
+          supabase
+            .from('clients')
+            .select('plan_code, cycle_start, plans!inner(name)')
+            .eq('id', membership.client_id)
+            .single()
+        ])
+
+        if (usageRes.data) {
+          setUsagePercent(Number(usageRes.data.pct_used ?? 0))
+          setHoursUsed(Number(usageRes.data.hours_used ?? 0))
+          setHoursMonthly(Number(usageRes.data.hours_monthly ?? 0))
+        }
+
+        if (clientRes.data) {
+          setPlanName((clientRes.data as any).plans?.name || (clientRes.data as any).plan_code || '')
+          setCycleStart((clientRes.data as any).cycle_start || '')
+        }
+      } catch (e) {
+        console.error('Failed to load billing data:', e)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [supabase, router])
+
+  const handlePortalClick = async () => {
+    setPortalLoading(true)
+    try {
+      const response = await fetch('/api/stripe/portal', {
+        method: 'POST',
+      })
+      const data = await response.json()
+      
+      if (data.url) {
+        window.location.href = data.url
+      } else {
+        alert(data.error || 'Failed to open billing portal')
+      }
+    } catch (error) {
+      console.error('Portal error:', error)
+      alert('Failed to open billing portal')
+    } finally {
+      setPortalLoading(false)
+    }
+  }
+
+  const getUsageStatus = () => {
+    if (usagePercent >= 100) return { label: 'Exceeded', variant: 'destructive' as const }
+    if (usagePercent >= 80) return { label: 'Approaching Limit', variant: 'warning' as const }
+    return { label: 'On Track', variant: 'success' as const }
+  }
+
+  const usageStatus = getUsageStatus()
+  const nextCycleDate = cycleStart ? new Date(cycleStart) : null
+  if (nextCycleDate) {
+    nextCycleDate.setMonth(nextCycleDate.getMonth() + 1)
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -15,81 +114,127 @@ export default function BillingPage() {
           <p className="text-muted-foreground">Manage your subscription and billing information</p>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2">
+        {loading ? (
           <Card>
-            <CardHeader>
-              <CardTitle>Current Plan</CardTitle>
-              <CardDescription>Your active subscription details</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="font-medium">Growth Plan</span>
-                <Badge variant="success">Active</Badge>
-              </div>
-              <div className="text-2xl font-bold">$299/month</div>
-              <p className="text-sm text-muted-foreground">
-                Next billing date: January 15, 2024
-              </p>
-              <Button className="w-full">
-                <CreditCard className="h-4 w-4 mr-2" />
-                Manage Subscription
-              </Button>
+            <CardContent className="p-8 text-center">
+              <p className="text-muted-foreground">Loading billing information...</p>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Usage This Month</CardTitle>
-              <CardDescription>Your development capacity usage</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="text-2xl font-bold">65%</div>
-              <p className="text-sm text-muted-foreground">
-                52 hours used of 80 hours available
-              </p>
-              <div className="w-full bg-secondary rounded-full h-2">
-                <div className="bg-primary h-2 rounded-full" style={{ width: '65%' }}></div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Resets on January 15, 2024
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Invoices</CardTitle>
-            <CardDescription>Your billing history</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {[
-                { date: 'Dec 15, 2023', amount: '$299.00', status: 'Paid' },
-                { date: 'Nov 15, 2023', amount: '$299.00', status: 'Paid' },
-                { date: 'Oct 15, 2023', amount: '$299.00', status: 'Paid' },
-              ].map((invoice, i) => (
-                <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <div className="p-2 bg-primary/10 rounded">
-                      <DollarSign className="h-4 w-4 text-primary" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{invoice.amount}</p>
-                      <p className="text-sm text-muted-foreground">{invoice.date}</p>
-                    </div>
+        ) : (
+          <>
+            <div className="grid gap-6 md:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Current Plan</CardTitle>
+                  <CardDescription>Your active subscription details</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{planName || 'No Plan'}</span>
+                    <Badge variant="success">Active</Badge>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <Badge variant="success">{invoice.status}</Badge>
-                    <Button variant="ghost" size="icon">
-                      <Download className="h-4 w-4" />
+                  {nextCycleDate && (
+                    <p className="text-sm text-muted-foreground">
+                      Next billing date: {nextCycleDate.toLocaleDateString('en-US', { 
+                        month: 'long', 
+                        day: 'numeric', 
+                        year: 'numeric' 
+                      })}
+                    </p>
+                  )}
+                  <Button 
+                    className="w-full" 
+                    onClick={handlePortalClick}
+                    disabled={portalLoading}
+                  >
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    {portalLoading ? 'Opening...' : 'Manage Subscription'}
+                    <ExternalLink className="h-4 w-4 ml-2" />
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    Usage This Month
+                    <Badge variant={usageStatus.variant}>{usageStatus.label}</Badge>
+                  </CardTitle>
+                  <CardDescription>Your development capacity usage</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="text-2xl font-bold">{Math.round(usagePercent)}%</div>
+                  <p className="text-sm text-muted-foreground">
+                    {Math.round(hoursUsed)} hours used of {hoursMonthly} hours available
+                  </p>
+                  <Progress value={Math.min(usagePercent, 100)} className="h-3" />
+                  {nextCycleDate && (
+                    <p className="text-xs text-muted-foreground">
+                      Resets on {nextCycleDate.toLocaleDateString('en-US', { 
+                        month: 'long', 
+                        day: 'numeric', 
+                        year: 'numeric' 
+                      })}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Upgrade Nudge */}
+            {usagePercent >= 80 && (
+              <Card className="border-yellow-200 bg-gradient-to-r from-yellow-50 to-orange-50">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <AlertTriangle className="h-6 w-6 text-yellow-600" />
+                      <div>
+                        <p className="font-semibold text-yellow-900">
+                          {usagePercent >= 100 ? 'Usage Limit Exceeded' : 'Approaching Usage Limit'}
+                        </p>
+                        <p className="text-sm text-yellow-700 mt-1">
+                          {usagePercent >= 100 
+                            ? 'You\'ve exceeded your plan capacity. Upgrade to continue receiving service.'
+                            : `You're at ${Math.round(usagePercent)}% of your plan capacity. Consider upgrading for more hours.`}
+                        </p>
+                      </div>
+                    </div>
+                    <Button 
+                      onClick={handlePortalClick}
+                      size="sm"
+                      className="bg-yellow-600 hover:bg-yellow-700 text-white"
+                      disabled={portalLoading}
+                    >
+                      Upgrade Plan
+                      <ExternalLink className="h-4 w-4 ml-2" />
                     </Button>
                   </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Billing Portal</CardTitle>
+                <CardDescription>Access your Stripe customer portal to manage subscriptions, invoices, and payment methods</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button 
+                  onClick={handlePortalClick}
+                  disabled={portalLoading}
+                  className="w-full md:w-auto"
+                >
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  {portalLoading ? 'Opening Portal...' : 'Open Customer Portal'}
+                  <ExternalLink className="h-4 w-4 ml-2" />
+                </Button>
+                <p className="text-sm text-muted-foreground mt-4">
+                  In the portal, you can update your payment method, view invoices, download receipts, and change your subscription plan.
+                </p>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </DashboardLayout>
   )
