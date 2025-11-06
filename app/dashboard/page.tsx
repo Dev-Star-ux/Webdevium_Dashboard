@@ -29,6 +29,7 @@ function useDashboardData() {
   const [recentTasks, setRecentTasks] = useState<RecentTask[]>([])
   const [tasksCompletedThisMonth, setTasksCompletedThisMonth] = useState<number>(0)
   const [avgTurnaroundDays, setAvgTurnaroundDays] = useState<number>(0)
+  const [valueDelivered, setValueDelivered] = useState<number>(0)
 
   useEffect(() => {
     let supabase: ReturnType<typeof getBrowserSupabase> | null = null
@@ -58,11 +59,18 @@ function useDashboardData() {
 
       setClientId(membership.client_id)
 
-      const [usageRes, tasksRes, clientRes, statsRes] = await Promise.all([
+      const [usageRes, tasksRes, clientRes, statsRes, valueRes] = await Promise.all([
         supabase!.from('v_client_usage').select('hours_monthly,hours_used,pct_used').eq('client_id', membership.client_id).maybeSingle(),
         supabase!.from('tasks').select('id,title,status,created_at,completed_at').eq('client_id', membership.client_id).order('created_at', { ascending: false }).limit(10),
         supabase!.from('clients').select('plan_code, plans!inner(name)').eq('id', membership.client_id).single(),
-        supabase!.rpc('calculate_task_stats', { p_client_id: membership.client_id }).maybeSingle()
+        supabase!.rpc('calculate_task_stats', { p_client_id: membership.client_id }).maybeSingle(),
+        // Calculate value delivered: sum of hours_spent for completed tasks this month
+        supabase!.from('tasks')
+          .select('hours_spent')
+          .eq('client_id', membership.client_id)
+          .eq('status', 'done')
+          .not('completed_at', 'is', null)
+          .gte('completed_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString())
       ])
 
       if (usageRes.data) {
@@ -81,6 +89,14 @@ function useDashboardData() {
       if (statsRes?.data) {
         setTasksCompletedThisMonth(Number((statsRes.data as any).completed_this_month ?? 0))
         setAvgTurnaroundDays(Number(((statsRes.data as any).avg_turnaround_days ?? 0)))
+      }
+
+      // Calculate value delivered (total hours spent on completed tasks this month)
+      if (valueRes?.data) {
+        const totalHours = (valueRes.data as any[]).reduce((sum, task) => {
+          return sum + (Number(task.hours_spent) || 0)
+        }, 0)
+        setValueDelivered(totalHours)
       }
 
       setLoading(false)
@@ -103,6 +119,7 @@ function useDashboardData() {
     recentTasks,
     tasksCompletedThisMonth,
     avgTurnaroundDays,
+    valueDelivered,
   }
 }
 
@@ -173,10 +190,10 @@ function UsageMeter({ usagePercent, usageStatus, router }: { usagePercent: numbe
   )
 }
 
-function StatsCards({ planName, tasksCompleted, avgTurnaround }: { planName: string; tasksCompleted: number; avgTurnaround: number }) {
+function StatsCards({ planName, tasksCompleted, avgTurnaround, valueDelivered }: { planName: string; tasksCompleted: number; avgTurnaround: number; valueDelivered: number }) {
 
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div className="grid gap-4 md:grid-cols-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Tasks Completed</CardTitle>
@@ -201,12 +218,23 @@ function StatsCards({ planName, tasksCompleted, avgTurnaround }: { planName: str
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Plan</CardTitle>
+          <CardTitle className="text-sm font-medium">Value Delivered</CardTitle>
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{planName || '—'}</div>
-          <p className="text-xs text-muted-foreground">Current plan</p>
+          <div className="text-2xl font-bold">{valueDelivered.toFixed(1)}h</div>
+          <p className="text-xs text-muted-foreground">This month</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Plan</CardTitle>
+          <Badge variant="secondary" className="text-xs">{planName || '—'}</Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm font-medium">{planName || 'No plan'}</div>
+          <p className="text-xs text-muted-foreground">Current subscription</p>
         </CardContent>
       </Card>
     </div>
@@ -246,7 +274,7 @@ function RecentActivity({ tasks }: { tasks: RecentTask[] }) {
 }
 
 export default function DashboardPage() {
-  const { loading, clientId, usagePercent, usageStatus, recentTasks, planName, tasksCompletedThisMonth, avgTurnaroundDays } = useDashboardData()
+  const { loading, clientId, usagePercent, usageStatus, recentTasks, planName, tasksCompletedThisMonth, avgTurnaroundDays, valueDelivered } = useDashboardData()
   const [submitTaskOpen, setSubmitTaskOpen] = useState(false)
   const router = useRouter()
 
@@ -284,7 +312,7 @@ export default function DashboardPage() {
         <UsageMeter usagePercent={usagePercent} usageStatus={usageStatus} router={router} />
 
         {/* Stats Cards */}
-        <StatsCards planName={planName} tasksCompleted={tasksCompletedThisMonth} avgTurnaround={avgTurnaroundDays} />
+        <StatsCards planName={planName} tasksCompleted={tasksCompletedThisMonth} avgTurnaround={avgTurnaroundDays} valueDelivered={valueDelivered} />
 
         {/* Recent Activity */}
         <RecentActivity tasks={recentTasks} />

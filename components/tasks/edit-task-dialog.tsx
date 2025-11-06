@@ -77,28 +77,22 @@ export function EditTaskDialog({
 
   // Load available developers for PM/Admin
   useEffect(() => {
-    if (isPMOrAdmin && isOpen && clientId) {
+    if (isPMOrAdmin && isOpen) {
       async function loadDevs() {
         try {
-          // Get devs from client_members where role is 'dev'
-          const { data: memberships, error } = await supabase
-            .from('client_members')
-            .select(`
-              user_id,
-              users!client_members_user_id_fkey(id, email)
-            `)
-            .eq('client_id', clientId)
+          // Get ALL users with role 'dev' from users table
+          const { data: devs, error } = await supabase
+            .from('users')
+            .select('id, email')
             .eq('role', 'dev')
+            .order('email')
 
           if (error) {
             console.error('Error loading developers:', error)
             return
           }
 
-          if (memberships) {
-            const devs = memberships
-              .map((m: any) => m.users)
-              .filter(Boolean)
+          if (devs) {
             setAvailableDevs(devs)
           }
         } catch (e) {
@@ -107,7 +101,7 @@ export function EditTaskDialog({
       }
       loadDevs()
     }
-  }, [isPMOrAdmin, isOpen, clientId, supabase])
+  }, [isPMOrAdmin, isOpen, supabase])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

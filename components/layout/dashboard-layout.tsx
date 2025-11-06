@@ -11,24 +11,58 @@ interface DashboardLayoutProps {
   isAdmin?: boolean
 }
 
-export function DashboardLayout({ children, isAdmin = false }: DashboardLayoutProps) {
+export function DashboardLayout({ children, isAdmin: isAdminProp = false }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [user, setUser] = useState<User | null>(null)
+  const [userRole, setUserRole] = useState<'admin' | 'pm' | 'dev' | 'client' | null>(null)
   const supabase = getBrowserSupabase()
 
   useEffect(() => {
-    // Get initial user
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user)
-    })
+    async function loadUserRole() {
+      // Get initial user
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      setUser(authUser)
+
+      if (authUser) {
+        // Get user role from client_members
+        const { data: membership } = await supabase
+          .from('client_members')
+          .select('role')
+          .eq('user_id', authUser.id)
+          .limit(1)
+          .maybeSingle()
+
+        if (membership) {
+          setUserRole(membership.role as 'admin' | 'pm' | 'dev' | 'client' | null)
+        }
+      }
+    }
+
+    loadUserRole()
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null)
+      
+      if (session?.user) {
+        const { data: membership } = await supabase
+          .from('client_members')
+          .select('role')
+          .eq('user_id', session.user.id)
+          .limit(1)
+          .maybeSingle()
+
+        if (membership) {
+          setUserRole(membership.role as 'admin' | 'pm' | 'dev' | 'client' | null)
+        }
+      }
     })
 
     return () => subscription.unsubscribe()
   }, [supabase])
+
+  // Determine if admin based on role or prop
+  const isAdmin = isAdminProp || userRole === 'admin' || userRole === 'pm'
 
   const userName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'User'
   const userEmail = user?.email
