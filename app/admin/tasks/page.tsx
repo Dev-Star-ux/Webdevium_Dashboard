@@ -228,10 +228,13 @@ export default function AdminTasksPage() {
   )
 
   useEffect(() => {
-    // Get clientId from URL params
+    // Get clientId from URL params on initial load
     const clientIdParam = searchParams.get('clientId')
     if (clientIdParam) {
       setSelectedClientId(clientIdParam)
+    } else {
+      // Default: show all clients' tasks
+      setSelectedClientId(null)
     }
   }, [searchParams])
 
@@ -289,7 +292,7 @@ export default function AdminTasksPage() {
     load()
   }, [supabase, router])
 
-  async function loadTasks() {
+  const loadTasks = async () => {
     try {
       let query = supabase
         .from('tasks')
@@ -299,6 +302,7 @@ export default function AdminTasksPage() {
           clients!inner(id, name)
         `)
 
+      // If a client is selected, filter by that client; otherwise show all
       if (selectedClientId) {
         query = query.eq('client_id', selectedClientId)
       }
@@ -319,7 +323,7 @@ export default function AdminTasksPage() {
 
   useEffect(() => {
     loadTasks()
-  }, [selectedClientId, supabase])
+  }, [selectedClientId])
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string)
@@ -376,6 +380,11 @@ export default function AdminTasksPage() {
   const onEditTask = (task: Task) => {
     setSelectedTask(task)
     setEditTaskOpen(true)
+    // When editing a task, set the filter to that task's client
+    if (task.client_id && task.client_id !== selectedClientId) {
+      setSelectedClientId(task.client_id)
+      router.push(`/admin/tasks?clientId=${task.client_id}`)
+    }
   }
 
   return (
@@ -398,11 +407,13 @@ export default function AdminTasksPage() {
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={selectedClientId || ''}
                   onChange={(e) => {
-                    setSelectedClientId(e.target.value || null)
-                    if (e.target.value) {
-                      router.push(`/admin/tasks?clientId=${e.target.value}`)
+                    const newClientId = e.target.value || null
+                    setSelectedClientId(newClientId)
+                    // Update URL without page reload
+                    if (newClientId) {
+                      router.push(`/admin/tasks?clientId=${newClientId}`, { scroll: false })
                     } else {
-                      router.push('/admin/tasks')
+                      router.push('/admin/tasks', { scroll: false })
                     }
                   }}
                 >
@@ -470,6 +481,11 @@ export default function AdminTasksPage() {
             userRole="pm"
             onTaskUpdated={() => {
               loadTasks()
+              // After updating, ensure filter is set to the task's client
+              if (selectedTask?.client_id && selectedTask.client_id !== selectedClientId) {
+                setSelectedClientId(selectedTask.client_id)
+                router.push(`/admin/tasks?clientId=${selectedTask.client_id}`, { scroll: false })
+              }
             }}
           />
         )}

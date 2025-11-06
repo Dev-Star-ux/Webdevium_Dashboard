@@ -276,7 +276,34 @@ function RecentActivity({ tasks }: { tasks: RecentTask[] }) {
 export default function DashboardPage() {
   const { loading, clientId, usagePercent, usageStatus, recentTasks, planName, tasksCompletedThisMonth, avgTurnaroundDays, valueDelivered } = useDashboardData()
   const [submitTaskOpen, setSubmitTaskOpen] = useState(false)
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
   const router = useRouter()
+  const supabase = getBrowserSupabase()
+
+  useEffect(() => {
+    async function checkAdmin() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: memberships } = await supabase
+          .from('client_members')
+          .select('role')
+          .eq('user_id', user.id)
+
+        const isAdminOrPM = memberships?.some(m => m.role === 'admin' || m.role === 'pm')
+        if (isAdminOrPM) {
+          router.push('/admin/dashboard')
+          return
+        }
+        setIsAdmin(false)
+      }
+    }
+    checkAdmin()
+  }, [supabase, router])
+
+  // Don't render client dashboard if admin
+  if (isAdmin === null || isAdmin) {
+    return null
+  }
 
   return (
     <DashboardLayout>
