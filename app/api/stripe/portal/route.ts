@@ -23,7 +23,10 @@ export async function POST(req: NextRequest) {
       .limit(1)
       .maybeSingle()
 
-    if (!membership?.clients?.stripe_customer_id) {
+    // Type assertion: clients is a single object, not an array
+    const client = membership?.clients as { stripe_customer_id: string } | undefined
+    
+    if (!client?.stripe_customer_id) {
       return NextResponse.json({ error: 'No Stripe customer found' }, { status: 400 })
     }
 
@@ -31,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     // Create portal session
     const session = await stripe.billingPortal.sessions.create({
-      customer: (membership.clients as any).stripe_customer_id,
+      customer: client.stripe_customer_id,
       return_url: `${req.nextUrl.origin}/billing`,
     })
 
