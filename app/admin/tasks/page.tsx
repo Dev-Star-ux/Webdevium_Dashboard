@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Plus, Filter, Search, Clock } from 'lucide-react'
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useState, Suspense, useCallback, useRef } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { EditTaskDialog } from '@/components/tasks/edit-task-dialog'
@@ -217,6 +217,7 @@ function AdminTasksPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = getBrowserSupabase()
+  const tasksLoadingRef = useRef(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -241,13 +242,16 @@ function AdminTasksPageContent() {
   }, [searchParams])
 
   useEffect(() => {
+    let cancelled = false
+    
     async function load() {
       setLoading(true)
+      tasksLoadingRef.current = false // Reset loading ref
       try {
         // Get user first
         const { data: { user } } = await supabase.auth.getUser()
-        if (!user) {
-          router.push('/login')
+        if (!user || cancelled) {
+          if (!user) router.push('/login')
           return
         }
 
@@ -257,6 +261,8 @@ function AdminTasksPageContent() {
           supabase.from('clients').select('id, name').order('name'),
           supabase.from('users').select('id, email').eq('role', 'dev'),
         ])
+
+        if (cancelled) return
 
         if (membershipsError) {
           throw membershipsError
@@ -276,26 +282,35 @@ function AdminTasksPageContent() {
           throw devsError
         }
 
-        if (clientsData) {
+        if (clientsData && !cancelled) {
           setClients(clientsData)
         }
 
-        if (devsData) {
+        if (devsData && !cancelled) {
           setDevelopers(devsData)
         }
-
-        // Load tasks
-        await loadTasks()
       } catch (e) {
-        console.error('Failed to load:', e)
+        if (!cancelled) {
+          console.error('Failed to load:', e)
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
     load()
+    
+    return () => {
+      cancelled = true
+    }
   }, [supabase, router])
 
-  const loadTasks = async () => {
+  const loadTasks = useCallback(async () => {
+    // Prevent duplicate concurrent loads
+    if (tasksLoadingRef.current || loading) return
+    tasksLoadingRef.current = true
+    
     try {
       let query = supabase
         .from('tasks')
@@ -322,12 +337,18 @@ function AdminTasksPageContent() {
       }
     } catch (e) {
       console.error('Failed to load tasks:', e)
+    } finally {
+      tasksLoadingRef.current = false
     }
-  }
+  }, [supabase, selectedClientId, loading])
 
+  // Load tasks when selectedClientId changes or after initial load completes
   useEffect(() => {
-    loadTasks()
-  }, [selectedClientId])
+    // Wait for initial load to complete before loading tasks
+    if (!loading) {
+      loadTasks()
+    }
+  }, [selectedClientId, loading, loadTasks])
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string)
