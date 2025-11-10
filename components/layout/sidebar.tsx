@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { 
   LayoutDashboard, 
@@ -12,6 +13,7 @@ import {
   LogOut
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { getBrowserSupabase } from '@/lib/supabase/client'
 
 const clientSidebarItems = [
   {
@@ -65,6 +67,22 @@ interface SidebarProps {
 
 export function Sidebar({ isAdmin = false }: SidebarProps) {
   const pathname = usePathname()
+  const router = useRouter()
+  const supabase = getBrowserSupabase()
+  const [signingOut, setSigningOut] = useState(false)
+
+  const handleSignOut = async () => {
+    if (signingOut) return
+    setSigningOut(true)
+    try {
+      await supabase.auth.signOut()
+      router.push('/login')
+    } catch (error) {
+      console.error('Failed to sign out:', error)
+    } finally {
+      setSigningOut(false)
+    }
+  }
 
   return (
     <div className="flex h-full w-64 flex-col bg-card border-r">
@@ -102,9 +120,15 @@ export function Sidebar({ isAdmin = false }: SidebarProps) {
 
       {/* User Section */}
       <div className="p-3 border-t">
-        <Button variant="ghost" className="w-full justify-start" size="sm">
+        <Button
+          variant="ghost"
+          className="w-full justify-start"
+          size="sm"
+          onClick={handleSignOut}
+          disabled={signingOut}
+        >
           <LogOut className="h-4 w-4 mr-3" />
-          Sign Out
+          {signingOut ? 'Signing out…' : 'Sign Out'}
         </Button>
       </div>
     </div>

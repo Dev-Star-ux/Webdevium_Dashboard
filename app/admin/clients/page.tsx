@@ -5,8 +5,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { Users, AlertTriangle, Calendar, Clock, TrendingUp } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Users, AlertTriangle, Clock, TrendingUp, Plus, X, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 
@@ -23,48 +25,340 @@ type Client = {
   risk_flag?: 'low' | 'medium' | 'high'
 }
 
+type Plan = {
+  code: string
+  name: string
+  hours_monthly: number
+}
+
+type ClientFormSubmit = {
+  name: string
+  plan_code: string
+  hours_monthly: number
+  cycle_start: string
+  hours_used_month?: number
+}
+
+interface ClientModalProps {
+  isOpen: boolean
+  mode: 'create' | 'edit'
+  plans: Plan[]
+  client?: Client | null
+  onClose: () => void
+  onSubmit: (values: ClientFormSubmit) => Promise<void>
+  onDelete?: () => Promise<void>
+}
+
+function ClientModal({
+  isOpen,
+  mode,
+  plans,
+  client,
+  onClose,
+  onSubmit,
+  onDelete,
+}: ClientModalProps) {
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const defaultPlan = useMemo(() => plans[0] ?? null, [plans])
+  const [name, setName] = useState('')
+  const [planCode, setPlanCode] = useState('')
+  const [hoursMonthly, setHoursMonthly] = useState('')
+  const [cycleStart, setCycleStart] = useState(today)
+  const [hoursUsed, setHoursUsed] = useState('0')
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    setName(client?.name ?? '')
+    const initialPlanCode = client?.plan_code ?? defaultPlan?.code ?? ''
+    setPlanCode(initialPlanCode)
+    if (client) {
+      setHoursMonthly(client.hours_monthly.toString())
+      setCycleStart(client.cycle_start ?? today)
+      setHoursUsed((client.hours_used_month ?? 0).toString())
+    } else {
+      setHoursMonthly((defaultPlan?.hours_monthly ?? 40).toString())
+      setCycleStart(today)
+      setHoursUsed('0')
+    }
+    setError(null)
+  }, [client, defaultPlan, isOpen, today])
+
+  if (!isOpen) return null
+
+  const handlePlanChange = (value: string) => {
+    setPlanCode(value)
+    const planMatch = plans.find((p) => p.code === value)
+    if (planMatch) {
+      setHoursMonthly(planMatch.hours_monthly.toString())
+    }
+  }
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setError(null)
+
+    const trimmedName = name.trim()
+    if (!trimmedName) {
+      setError('Client name is required')
+      return
+    }
+
+    if (!planCode) {
+      setError('Please select a plan')
+      return
+    }
+
+    const hoursValue = Number(hoursMonthly)
+    if (!Number.isFinite(hoursValue) || hoursValue <= 0) {
+      setError('Monthly hours must be greater than zero')
+      return
+    }
+
+    const payload: ClientFormSubmit = {
+      name: trimmedName,
+      plan_code: planCode,
+      hours_monthly: hoursValue,
+      cycle_start: cycleStart || today,
+    }
+
+    if (mode === 'edit') {
+      const parsedHoursUsed = Number(hoursUsed)
+      if (!Number.isFinite(parsedHoursUsed) || parsedHoursUsed < 0) {
+        setError('Hours used must be zero or positive')
+        return
+      }
+      payload.hours_used_month = parsedHoursUsed
+    }
+
+    try {
+      setSaving(true)
+      await onSubmit(payload)
+      onClose()
+    } catch (err: any) {
+      setError(err.message || 'Failed to save client')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!onDelete) return
+    setError(null)
+    const confirmed = typeof window !== 'undefined'
+      ? window.confirm('Delete this client? This will also remove related tasks and usage.')
+      : true
+
+    if (!confirmed) return
+
+    try {
+      setDeleting(true)
+      await onDelete()
+      onClose()
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete client')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <Card className="w-full max-w-xl shadow-2xl">
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div>
+            <CardTitle className="text-xl">
+              {mode === 'create' ? 'Add Client' : 'Edit Client'}
+            </CardTitle>
+            <CardDescription>
+              {mode === 'create'
+                ? 'Create a new client and set starting capacity'
+                : 'Update billing details or remove the client'}
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            disabled={saving || deleting}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            {error && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="client-name">Client Name</Label>
+              <Input
+                id="client-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Acme Corp"
+                required
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="client-plan">Plan</Label>
+                <select
+                  id="client-plan"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={planCode}
+                  onChange={(event) => handlePlanChange(event.target.value)}
+                  required
+                >
+                  <option value="" disabled>
+                    Select a plan
+                  </option>
+                  {plans.map((plan) => (
+                    <option key={plan.code} value={plan.code}>
+                      {plan.name} ({plan.hours_monthly}h)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="client-hours">Monthly Hours</Label>
+                <Input
+                  id="client-hours"
+                  type="number"
+                  min={1}
+                  value={hoursMonthly}
+                  onChange={(event) => setHoursMonthly(event.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="client-cycle">Cycle Start</Label>
+                <Input
+                  id="client-cycle"
+                  type="date"
+                  value={cycleStart}
+                  onChange={(event) => setCycleStart(event.target.value)}
+                  required
+                />
+              </div>
+
+              {mode === 'edit' && (
+                <div className="space-y-2">
+                  <Label htmlFor="client-hours-used">Hours Used (this month)</Label>
+                  <Input
+                    id="client-hours-used"
+                    type="number"
+                    min={0}
+                    step="0.1"
+                    value={hoursUsed}
+                    onChange={(event) => setHoursUsed(event.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Adjust usage if you need to reconcile billing.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              {mode === 'edit' && onDelete && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleDelete}
+                  disabled={saving || deleting}
+                  className="flex items-center gap-2"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {deleting ? 'Deleting...' : 'Delete Client'}
+                </Button>
+              )}
+              <div className="flex-1" />
+              <div className="flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onClose}
+                  disabled={saving || deleting}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={saving || deleting}>
+                  {saving ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </div>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 export default function AdminClientsPage() {
   const [loading, setLoading] = useState(true)
   const [clients, setClients] = useState<Client[]>([])
   const [userRole, setUserRole] = useState<'admin' | 'pm' | 'dev' | 'client' | null>(null)
+  const [plans, setPlans] = useState<Plan[]>([])
+  const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [clientToManage, setClientToManage] = useState<Client | null>(null)
+  const [pageError, setPageError] = useState<string | null>(null)
   const router = useRouter()
   const supabase = getBrowserSupabase()
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true)
-      try {
-        // Get user and role
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) {
-          router.push('/login')
-          return
-        }
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    setPageError(null)
+    try {
+      // Get user first, then fetch memberships
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/login')
+        return
+      }
 
-        // Get user role - check all memberships to find admin/pm role
-        const { data: memberships } = await supabase
-          .from('client_members')
-          .select('role')
-          .eq('user_id', user.id)
+      // Get memberships
+      const { data: memberships, error: membershipsError } = await supabase
+        .from('client_members')
+        .select('role')
+        .eq('user_id', user.id)
 
-        const isAdminOrPM = memberships?.some(m => m.role === 'admin' || m.role === 'pm')
-        
-        if (!isAdminOrPM) {
-          router.push('/dashboard')
-          return
-        }
+      if (membershipsError) {
+        throw membershipsError
+      }
 
-        // Set role (use first admin/pm role found)
-        const adminOrPMMembership = memberships?.find(m => m.role === 'admin' || m.role === 'pm')
-        if (adminOrPMMembership) {
-          setUserRole(adminOrPMMembership.role as 'admin' | 'pm')
-        }
+      const isAdminOrPM = memberships?.some((m) => m.role === 'admin' || m.role === 'pm')
+      if (!isAdminOrPM) {
+        router.push('/dashboard')
+        return
+      }
 
-        // Fetch all clients with usage data
-        // First get clients, then join with usage view
-        const { data: clientsData, error } = await supabase
+      const adminOrPMMembership = memberships?.find((m) => m.role === 'admin' || m.role === 'pm')
+      if (adminOrPMMembership) {
+        setUserRole(adminOrPMMembership.role as 'admin' | 'pm')
+      }
+
+      // Parallel: Fetch clients and plans together
+      const [
+        { data: clientsData, error: clientsError },
+        { data: plansData, error: plansError },
+      ] = await Promise.all([
+        supabase
           .from('clients')
-          .select(`
+          .select(
+            `
             id,
             name,
             plan_code,
@@ -72,64 +366,143 @@ export default function AdminClientsPage() {
             owner_user_id,
             hours_monthly,
             hours_used_month,
-            plans!inner(name)
-          `)
-          .order('name')
+            plans(name)
+          `
+          )
+          .order('name'),
+        supabase.from('plans').select('code, name, hours_monthly').order('hours_monthly'),
+      ])
 
-        if (error) {
-          console.error('Error fetching clients:', error)
-        } else if (clientsData) {
-          // Get usage data from view for each client
-          const clientIds = (clientsData as any[]).map(c => c.id)
-          const { data: usageData } = await supabase
+      if (clientsError) {
+        throw clientsError
+      }
+      if (plansError) {
+        throw plansError
+      }
+
+      if (plansData) {
+        setPlans(plansData as Plan[])
+      }
+
+      if (clientsData) {
+        const clientArray = clientsData as any[]
+        const clientIds = clientArray.map((c) => c.id).filter(Boolean)
+
+        // Fetch usage data in parallel if we have clients
+        let usageMap = new Map<string, { hours_used: number; pct_used: number }>()
+        if (clientIds.length > 0) {
+          const { data: usageData, error: usageError } = await supabase
             .from('v_client_usage')
             .select('client_id, hours_used, pct_used')
             .in('client_id', clientIds)
 
-          // Create a map of usage data by client_id
-          const usageMap = new Map()
-          if (usageData) {
-            usageData.forEach((u: any) => {
-              usageMap.set(u.client_id, {
-                hours_used: Number(u.hours_used || 0),
-                pct_used: Number(u.pct_used || 0),
-              })
-            })
+          if (usageError) {
+            throw usageError
           }
 
-          const formattedClients: Client[] = (clientsData as any[]).map((c: any) => {
-            const usage = usageMap.get(c.id) || { hours_used: 0, pct_used: 0 }
-            const usagePercent = usage.pct_used
-            const planName = c.plans?.name || c.plan_code
-            
-            // Determine risk flag
-            let riskFlag: 'low' | 'medium' | 'high' = 'low'
-            if (usagePercent >= 100) riskFlag = 'high'
-            else if (usagePercent >= 80) riskFlag = 'medium'
-
-            return {
-              id: c.id,
-              name: c.name,
-              plan_code: c.plan_code,
-              hours_monthly: Number(c.hours_monthly || 0),
-              hours_used_month: usage.hours_used,
-              cycle_start: c.cycle_start,
-              owner_user_id: c.owner_user_id,
-              plan_name: planName,
-              usage_percent: usagePercent,
-              risk_flag: riskFlag,
-            }
-          })
-          setClients(formattedClients)
+          if (usageData) {
+            usageMap = new Map(
+              usageData.map((u: any) => [
+                u.client_id,
+                {
+                  hours_used: Number(u.hours_used || 0),
+                  pct_used: Number(u.pct_used || 0),
+                },
+              ])
+            )
+          }
         }
-      } catch (e) {
-        console.error('Failed to load clients:', e)
-      } finally {
-        setLoading(false)
+
+        const formattedClients: Client[] = clientArray.map((c: any) => {
+          const usage = usageMap.get(c.id) || { hours_used: Number(c.hours_used_month || 0), pct_used: 0 }
+          const usagePercent = usage.pct_used
+          const planName = c.plans?.name || c.plan_code
+
+          let riskFlag: 'low' | 'medium' | 'high' = 'low'
+          if (usagePercent >= 100) riskFlag = 'high'
+          else if (usagePercent >= 80) riskFlag = 'medium'
+
+          return {
+            id: c.id,
+            name: c.name,
+            plan_code: c.plan_code,
+            hours_monthly: Number(c.hours_monthly || 0),
+            hours_used_month: Number(usage.hours_used || 0),
+            cycle_start: c.cycle_start,
+            owner_user_id: c.owner_user_id,
+            plan_name: planName,
+            usage_percent: usagePercent,
+            risk_flag: riskFlag,
+          }
+        })
+
+        setClients(formattedClients)
       }
+    } catch (e: any) {
+      console.error('Failed to load clients:', e)
+      setPageError(e.message || 'Failed to load clients')
+    } finally {
+      setLoading(false)
     }
-    load()
-  }, [supabase, router])
+  }, [router, supabase])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  const handleCreateClient = useCallback(
+    async (values: ClientFormSubmit) => {
+      const response = await fetch('/api/admin/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(data.error ?? 'Failed to create client')
+      }
+
+      await loadData()
+    },
+    [loadData]
+  )
+
+  const handleUpdateClient = useCallback(
+    async (clientId: string, values: ClientFormSubmit) => {
+      const response = await fetch(`/api/admin/clients/${clientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(data.error ?? 'Failed to update client')
+      }
+
+      await loadData()
+    },
+    [loadData]
+  )
+
+  const handleDeleteClient = useCallback(
+    async (clientId: string) => {
+      const response = await fetch(`/api/admin/clients/${clientId}`, {
+        method: 'DELETE',
+      })
+
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error ?? 'Failed to delete client')
+      }
+
+      await loadData()
+    },
+    [loadData]
+  )
 
   const getRiskBadgeVariant = (risk: string) => {
     switch (risk) {
@@ -160,10 +533,26 @@ export default function AdminClientsPage() {
   return (
     <DashboardLayout isAdmin={true}>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">Clients</h1>
-          <p className="text-muted-foreground">Manage all clients and monitor usage</p>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Clients</h1>
+            <p className="text-muted-foreground">Manage all clients and monitor usage</p>
+          </div>
+          <Button
+            onClick={() => setCreateModalOpen(true)}
+            className="flex items-center gap-2"
+            disabled={plans.length === 0}
+          >
+            <Plus className="h-4 w-4" />
+            Add Client
+          </Button>
         </div>
+
+        {pageError && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {pageError}
+          </div>
+        )}
 
         {/* Stats Summary */}
         <div className="grid gap-4 md:grid-cols-4">
@@ -282,14 +671,22 @@ export default function AdminClientsPage() {
                             />
                           </div>
                         </div>
-                        
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => router.push(`/admin/tasks?clientId=${client.id}`)}
-                        >
-                          View Tasks
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => router.push(`/admin/tasks?clientId=${client.id}`)}
+                          >
+                            View Tasks
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setClientToManage(client)}
+                          >
+                            Manage
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   )
@@ -299,6 +696,28 @@ export default function AdminClientsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {createModalOpen && (
+        <ClientModal
+          isOpen={createModalOpen}
+          mode="create"
+          plans={plans}
+          onClose={() => setCreateModalOpen(false)}
+          onSubmit={handleCreateClient}
+        />
+      )}
+
+      {clientToManage && (
+        <ClientModal
+          isOpen={!!clientToManage}
+          mode="edit"
+          plans={plans}
+          client={clientToManage}
+          onClose={() => setClientToManage(null)}
+          onSubmit={(values) => handleUpdateClient(clientToManage.id, values)}
+          onDelete={() => handleDeleteClient(clientToManage.id)}
+        />
+      )}
     </DashboardLayout>
   )
 }

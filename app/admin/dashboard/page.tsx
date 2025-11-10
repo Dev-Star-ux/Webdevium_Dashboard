@@ -52,10 +52,14 @@ export default function AdminDashboardPage() {
           return
         }
 
-        const { data: memberships } = await supabase
+        const { data: memberships, error: membershipsError } = await supabase
           .from('client_members')
           .select('role')
           .eq('user_id', user.id)
+
+        if (membershipsError) {
+          throw membershipsError
+        }
 
         const isAdminOrPM = memberships?.some(m => m.role === 'admin' || m.role === 'pm')
         
@@ -64,14 +68,31 @@ export default function AdminDashboardPage() {
           return
         }
 
-        // Load client summary
-        const { data: clientsData } = await supabase
-          .from('clients')
-          .select('id, name, hours_monthly, hours_used_month')
+        const [
+          { data: clientsData, error: clientsError },
+          { data: usageData, error: usageError },
+          { data: tasksData, error: tasksError },
+        ] = await Promise.all([
+          supabase
+            .from('clients')
+            .select('id, name, hours_monthly, hours_used_month'),
+          supabase
+            .from('v_client_usage')
+            .select('client_id, pct_used'),
+          supabase
+            .from('tasks')
+            .select('status'),
+        ])
 
-        const { data: usageData } = await supabase
-          .from('v_client_usage')
-          .select('client_id, pct_used')
+        if (clientsError) {
+          throw clientsError
+        }
+        if (usageError) {
+          throw usageError
+        }
+        if (tasksError) {
+          throw tasksError
+        }
 
         if (clientsData && usageData) {
           const usageMap = new Map()
@@ -106,11 +127,6 @@ export default function AdminDashboardPage() {
           }))
           setRecentClients(recentClientsWithUsage)
         }
-
-        // Load task summary
-        const { data: tasksData } = await supabase
-          .from('tasks')
-          .select('status')
 
         if (tasksData) {
           setTaskSummary({

@@ -11,6 +11,7 @@ import { useEffect, useState, Suspense } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { EditTaskDialog } from '@/components/tasks/edit-task-dialog'
+import { CreateTaskDialog } from '@/components/tasks/create-task-dialog'
 import {
   DndContext,
   closestCenter,
@@ -212,6 +213,7 @@ function AdminTasksPageContent() {
   const [editTaskOpen, setEditTaskOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [createTaskOpen, setCreateTaskOpen] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = getBrowserSupabase()
@@ -242,17 +244,23 @@ function AdminTasksPageContent() {
     async function load() {
       setLoading(true)
       try {
-        // Get user and verify admin/pm
+        // Get user first
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) {
           router.push('/login')
           return
         }
 
-        const { data: memberships } = await supabase
-          .from('client_members')
-          .select('role')
-          .eq('user_id', user.id)
+        // Parallel: Get memberships and verify admin/pm, then fetch clients/devs
+        const [{ data: memberships, error: membershipsError }, { data: clientsData, error: clientsError }, { data: devsData, error: devsError }] = await Promise.all([
+          supabase.from('client_members').select('role').eq('user_id', user.id),
+          supabase.from('clients').select('id, name').order('name'),
+          supabase.from('users').select('id, email').eq('role', 'dev'),
+        ])
+
+        if (membershipsError) {
+          throw membershipsError
+        }
 
         const isAdminOrPM = memberships?.some(m => m.role === 'admin' || m.role === 'pm')
         
@@ -261,21 +269,16 @@ function AdminTasksPageContent() {
           return
         }
 
-        // Load all clients
-        const { data: clientsData } = await supabase
-          .from('clients')
-          .select('id, name')
-          .order('name')
+        if (clientsError) {
+          throw clientsError
+        }
+        if (devsError) {
+          throw devsError
+        }
 
         if (clientsData) {
           setClients(clientsData)
         }
-
-        // Load all developers (users with role 'dev')
-        const { data: devsData } = await supabase
-          .from('users')
-          .select('id, email')
-          .eq('role', 'dev')
 
         if (devsData) {
           setDevelopers(devsData)
@@ -310,6 +313,7 @@ function AdminTasksPageContent() {
       const { data: tasksData, error } = await query
         .order('position', { ascending: true })
         .order('created_at', { ascending: false })
+        .limit(200) // Limit to prevent performance issues with large datasets
 
       if (error) {
         console.error('Error fetching tasks:', error)
@@ -390,11 +394,19 @@ function AdminTasksPageContent() {
   return (
     <DashboardLayout isAdmin={true}>
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold">All Tasks</h1>
             <p className="text-muted-foreground">Manage tasks across all clients</p>
           </div>
+          <Button
+            className="flex items-center gap-2"
+            onClick={() => setCreateTaskOpen(true)}
+            disabled={clients.length === 0}
+          >
+            <Plus className="h-4 w-4" />
+            New Task
+          </Button>
         </div>
 
         {/* Filters */}
@@ -536,6 +548,24 @@ function AdminTasksPageContent() {
           </DragOverlay>
         </DndContext>
       </div>
+
+      {createTaskOpen && (
+        <CreateTaskDialog
+          isOpen={createTaskOpen}
+          onClose={() => setCreateTaskOpen(false)}
+          clients={clients}
+          developers={developers}
+          defaultClientId={selectedClientId}
+          onCreated={(task) => {
+            if (task?.client_id && task.client_id !== selectedClientId) {
+              setSelectedClientId(task.client_id)
+              router.push(`/admin/tasks?clientId=${task.client_id}`, { scroll: false })
+            } else {
+              loadTasks()
+            }
+          }}
+        />
+      )}
     </DashboardLayout>
   )
 }

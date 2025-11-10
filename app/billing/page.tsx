@@ -26,21 +26,20 @@ export default function BillingPage() {
     async function load() {
       setLoading(true)
       try {
-        // Get client membership
-        const { data: membership } = await supabase
-          .from('client_members')
-          .select('client_id')
-          .limit(1)
-          .maybeSingle()
+        // Parallel: Get membership and user check
+        const [{ data: membership }, { data: { user } }] = await Promise.all([
+          supabase.from('client_members').select('client_id').limit(1).maybeSingle(),
+          supabase.auth.getUser()
+        ])
 
-        if (!membership?.client_id) {
+        if (!user || !membership?.client_id) {
           router.push('/onboarding')
           return
         }
 
         setClientId(membership.client_id)
 
-        // Fetch usage and client data
+        // Parallel: Fetch usage and client data
         const [usageRes, clientRes] = await Promise.all([
           supabase
             .from('v_client_usage')

@@ -42,14 +42,14 @@ function useDashboardData() {
     }
     async function load() {
       setLoading(true)
-      // Find a client_id for current user (first membership)
-      const { data: membership } = await supabase!
-        .from('client_members')
-        .select('client_id')
-        .limit(1)
-        .maybeSingle()
+      
+      // Parallel: Get user and membership in one go
+      const [{ data: { user } }, { data: membership }] = await Promise.all([
+        supabase!.auth.getUser(),
+        supabase!.from('client_members').select('client_id, role').limit(1).maybeSingle()
+      ])
 
-      if (!membership?.client_id) {
+      if (!user || !membership?.client_id) {
         // Redirect to onboarding if no client
         if (typeof window !== 'undefined') {
           window.location.href = '/onboarding'
@@ -57,8 +57,17 @@ function useDashboardData() {
         return
       }
 
+      // Check if admin - redirect immediately if so
+      if (membership.role === 'admin' || membership.role === 'pm') {
+        if (typeof window !== 'undefined') {
+          window.location.href = '/admin/dashboard'
+        }
+        return
+      }
+
       setClientId(membership.client_id)
 
+      // Parallel: Fetch all dashboard data at once
       const [usageRes, tasksRes, clientRes, statsRes, valueRes] = await Promise.all([
         supabase!.from('v_client_usage').select('hours_monthly,hours_used,pct_used').eq('client_id', membership.client_id).maybeSingle(),
         supabase!.from('tasks').select('id,title,status,created_at,completed_at').eq('client_id', membership.client_id).order('created_at', { ascending: false }).limit(10),
@@ -276,34 +285,7 @@ function RecentActivity({ tasks }: { tasks: RecentTask[] }) {
 export default function DashboardPage() {
   const { loading, clientId, usagePercent, usageStatus, recentTasks, planName, tasksCompletedThisMonth, avgTurnaroundDays, valueDelivered } = useDashboardData()
   const [submitTaskOpen, setSubmitTaskOpen] = useState(false)
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
   const router = useRouter()
-  const supabase = getBrowserSupabase()
-
-  useEffect(() => {
-    async function checkAdmin() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data: memberships } = await supabase
-          .from('client_members')
-          .select('role')
-          .eq('user_id', user.id)
-
-        const isAdminOrPM = memberships?.some(m => m.role === 'admin' || m.role === 'pm')
-        if (isAdminOrPM) {
-          router.push('/admin/dashboard')
-          return
-        }
-        setIsAdmin(false)
-      }
-    }
-    checkAdmin()
-  }, [supabase, router])
-
-  // Don't render client dashboard if admin
-  if (isAdmin === null || isAdmin) {
-    return null
-  }
 
   return (
     <DashboardLayout>

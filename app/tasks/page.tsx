@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Plus, MoreHorizontal, Paperclip, Calendar, User } from 'lucide-react'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { SubmitTaskDialog } from '@/components/tasks/submit-task-dialog'
 import { EditTaskDialog } from '@/components/tasks/edit-task-dialog'
@@ -291,19 +291,13 @@ export default function TasksPage() {
     async function loadTasks() {
       setLoading(true)
       try {
-        // Get current user
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
+        // Parallel: Get user and membership at once
+        const [{ data: { user } }, { data: membership }] = await Promise.all([
+          supabase.auth.getUser(),
+          supabase.from('client_members').select('client_id, role').limit(1).maybeSingle()
+        ])
 
-        // Get client membership with role
-        const { data: membership } = await supabase
-          .from('client_members')
-          .select('client_id, role')
-          .eq('user_id', user.id)
-          .limit(1)
-          .maybeSingle()
-
-        if (!membership?.client_id) {
+        if (!user || !membership?.client_id) {
           // Redirect to onboarding if no client
           if (typeof window !== 'undefined') {
             window.location.href = '/onboarding'
@@ -314,7 +308,7 @@ export default function TasksPage() {
         setClientId(membership.client_id)
         setUserRole(membership.role as 'admin' | 'pm' | 'dev' | 'client' | null)
 
-        // Fetch tasks with assigned dev info
+        // Fetch tasks with assigned dev info (limit to prevent large loads)
         const { data: tasksData, error } = await supabase
           .from('tasks')
           .select(`
@@ -324,6 +318,7 @@ export default function TasksPage() {
           .eq('client_id', membership.client_id)
           .order('position', { ascending: true })
           .order('created_at', { ascending: false })
+          .limit(100) // Limit to prevent performance issues
 
         if (error) {
           console.error('Error fetching tasks:', error)
@@ -613,7 +608,7 @@ export default function TasksPage() {
     }
   }
 
-  async function loadTasks() {
+  const loadTasks = useCallback(async () => {
     if (!clientId) return
     
     try {
@@ -626,6 +621,7 @@ export default function TasksPage() {
         .eq('client_id', clientId)
         .order('position', { ascending: true })
         .order('created_at', { ascending: false })
+        .limit(100) // Limit to prevent performance issues
 
       if (error) {
         console.error('Error fetching tasks:', error)
@@ -635,7 +631,7 @@ export default function TasksPage() {
     } catch (e) {
       console.error('Failed to load tasks:', e)
     }
-  }
+  }, [clientId, supabase])
 
   // Group tasks by status and sort by priority
   const queuedTasks = sortTasksByPriority(tasks.filter(t => t.status === 'queued'))
