@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getServerSupabase } from '@/lib/supabase/server'
-import { getAdminSupabase } from '@/lib/supabase/admin'
 
 const updateSchema = z
   .object({
@@ -19,12 +18,25 @@ async function assertIsAdmin() {
   const supabase = await getServerSupabase()
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser()
 
-  if (!user) {
+  if (userError || !user) {
     return { ok: false, status: 401 as const, error: 'Unauthorized' }
   }
 
+  // First, try to check users.role using regular client (if RLS allows)
+  const { data: userRecord, error: userRecordError } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (!userRecordError && userRecord && (userRecord.role === 'admin' || userRecord.role === 'pm')) {
+    return { ok: true as const }
+  }
+
+  // Fallback to client_members check
   const { data: memberships, error: membershipsError } = await supabase
     .from('client_members')
     .select('role')
@@ -44,14 +56,15 @@ async function assertIsAdmin() {
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const supabase = await getServerSupabase()
   const authCheck = await assertIsAdmin()
   if (!authCheck.ok) {
     return NextResponse.json({ error: authCheck.error }, { status: authCheck.status })
   }
 
-  const clientId = params.id
+  const { id: clientId } = await params
   const payload = await req.json().catch(() => ({}))
   const parsed = updateSchema.safeParse(payload)
 
@@ -59,8 +72,8 @@ export async function PATCH(
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const adminSupabase = getAdminSupabase()
-  const { data, error } = await adminSupabase
+  // Use regular Supabase client (RLS should allow admin/pm to update clients)
+  const { data, error } = await supabase
     .from('clients')
     .update({
       ...parsed.data,
@@ -78,16 +91,16 @@ export async function PATCH(
 
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const supabase = await getServerSupabase()
   const authCheck = await assertIsAdmin()
   if (!authCheck.ok) {
     return NextResponse.json({ error: authCheck.error }, { status: authCheck.status })
   }
 
-  const clientId = params.id
-  const adminSupabase = getAdminSupabase()
-  const { error } = await adminSupabase.from('clients').delete().eq('id', clientId)
+  const { id: clientId } = await params
+  const { error } = await supabase.from('clients').delete().eq('id', clientId)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })

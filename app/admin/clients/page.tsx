@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Users, AlertTriangle, Clock, TrendingUp, Plus, X, Trash2 } from 'lucide-react'
+import { Users, AlertTriangle, Clock, TrendingUp, Plus, X, Trash2, CreditCard, ExternalLink, Link2, Unlink } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -23,6 +23,7 @@ type Client = {
   plan_name?: string
   usage_percent?: number
   risk_flag?: 'low' | 'medium' | 'high'
+  stripe_customer_id?: string | null
 }
 
 type Plan = {
@@ -68,6 +69,29 @@ function ClientModal({
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [stripeCustomerId, setStripeCustomerId] = useState<string>('')
+  const [stripeInfo, setStripeInfo] = useState<any>(null)
+  const [loadingStripe, setLoadingStripe] = useState(false)
+  const [stripeError, setStripeError] = useState<string | null>(null)
+
+  const loadStripeInfo = useCallback(async (clientId: string) => {
+    setLoadingStripe(true)
+    setStripeError(null)
+    try {
+      const response = await fetch(`/api/admin/clients/${clientId}/stripe`)
+      const data = await response.json()
+      if (response.ok) {
+        setStripeInfo(data)
+        setStripeCustomerId(data.stripe_customer_id || '')
+      } else {
+        setStripeError(data.error || 'Failed to load Stripe info')
+      }
+    } catch (err: any) {
+      setStripeError(err.message || 'Failed to load Stripe info')
+    } finally {
+      setLoadingStripe(false)
+    }
+  }, [])
 
   useEffect(() => {
     if (!isOpen) return
@@ -79,13 +103,100 @@ function ClientModal({
       setHoursMonthly(client.hours_monthly.toString())
       setCycleStart(client.cycle_start ?? today)
       setHoursUsed((client.hours_used_month ?? 0).toString())
+      setStripeCustomerId(client.stripe_customer_id || '')
+      // Load Stripe info if customer ID exists
+      if (client.stripe_customer_id) {
+        loadStripeInfo(client.id)
+      } else {
+        setStripeInfo(null)
+      }
     } else {
       setHoursMonthly((defaultPlan?.hours_monthly ?? 40).toString())
       setCycleStart(today)
       setHoursUsed('0')
+      setStripeCustomerId('')
+      setStripeInfo(null)
     }
     setError(null)
-  }, [client, defaultPlan, isOpen, today])
+    setStripeError(null)
+  }, [client, defaultPlan, isOpen, today, loadStripeInfo])
+
+  const handleLinkStripe = async () => {
+    if (!client || !stripeCustomerId.trim()) {
+      setStripeError('Please enter a Stripe customer ID')
+      return
+    }
+
+    setLoadingStripe(true)
+    setStripeError(null)
+    try {
+      const response = await fetch(`/api/admin/clients/${client.id}/stripe`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stripe_customer_id: stripeCustomerId.trim() }),
+      })
+      const data = await response.json()
+      if (response.ok) {
+        await loadStripeInfo(client.id)
+      } else {
+        setStripeError(data.error || 'Failed to link Stripe customer')
+      }
+    } catch (err: any) {
+      setStripeError(err.message || 'Failed to link Stripe customer')
+    } finally {
+      setLoadingStripe(false)
+    }
+  }
+
+  const handleUnlinkStripe = async () => {
+    if (!client) return
+    const confirmed = typeof window !== 'undefined'
+      ? window.confirm('Unlink Stripe customer? This will remove the connection but not delete the customer in Stripe.')
+      : true
+    if (!confirmed) return
+
+    setLoadingStripe(true)
+    setStripeError(null)
+    try {
+      const response = await fetch(`/api/admin/clients/${client.id}/stripe`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stripe_customer_id: null }),
+      })
+      const data = await response.json()
+      if (response.ok) {
+        setStripeInfo(null)
+        setStripeCustomerId('')
+      } else {
+        setStripeError(data.error || 'Failed to unlink Stripe customer')
+      }
+    } catch (err: any) {
+      setStripeError(err.message || 'Failed to unlink Stripe customer')
+    } finally {
+      setLoadingStripe(false)
+    }
+  }
+
+  const handleOpenStripePortal = async () => {
+    if (!client) return
+    setLoadingStripe(true)
+    setStripeError(null)
+    try {
+      const response = await fetch(`/api/admin/clients/${client.id}/stripe`, {
+        method: 'POST',
+      })
+      const data = await response.json()
+      if (response.ok && data.url) {
+        window.open(data.url, '_blank')
+      } else {
+        setStripeError(data.error || 'Failed to open Stripe portal')
+      }
+    } catch (err: any) {
+      setStripeError(err.message || 'Failed to open Stripe portal')
+    } finally {
+      setLoadingStripe(false)
+    }
+  }
 
   if (!isOpen) return null
 
@@ -272,6 +383,102 @@ function ClientModal({
               )}
             </div>
 
+            {/* Stripe Management Section - Only in Edit Mode */}
+            {mode === 'edit' && client && (
+              <div className="border-t pt-4 space-y-4">
+                <div className="flex items-center space-x-2">
+                  <CreditCard className="h-5 w-5" />
+                  <Label className="text-base font-semibold">Stripe Settings</Label>
+                </div>
+
+                {stripeError && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    {stripeError}
+                  </div>
+                )}
+
+                {loadingStripe ? (
+                  <div className="text-sm text-muted-foreground">Loading Stripe info...</div>
+                ) : stripeInfo?.has_stripe && stripeInfo.customer ? (
+                  <div className="space-y-3">
+                    <div className="rounded-md border bg-muted/50 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">Stripe Customer ID</span>
+                        <Badge variant="secondary">{stripeInfo.stripe_customer_id}</Badge>
+                      </div>
+                      {stripeInfo.customer.email && (
+                        <div className="text-sm text-muted-foreground">
+                          Email: {stripeInfo.customer.email}
+                        </div>
+                      )}
+                      {stripeInfo.subscriptions && stripeInfo.subscriptions.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-sm font-medium">Active Subscriptions:</div>
+                          {stripeInfo.subscriptions.map((sub: any) => (
+                            <div key={sub.id} className="text-xs text-muted-foreground pl-2">
+                              • {sub.status} - {new Date(sub.current_period_end * 1000).toLocaleDateString()}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleOpenStripePortal}
+                        disabled={loadingStripe}
+                        className="flex items-center gap-2"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Open Stripe Portal
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleUnlinkStripe}
+                        disabled={loadingStripe}
+                        className="flex items-center gap-2"
+                      >
+                        <Unlink className="h-4 w-4" />
+                        Unlink
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="text-sm text-muted-foreground">
+                      No Stripe customer linked to this client.
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        placeholder="cus_..."
+                        value={stripeCustomerId}
+                        onChange={(e) => setStripeCustomerId(e.target.value)}
+                        className="font-mono text-sm"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleLinkStripe}
+                        disabled={loadingStripe || !stripeCustomerId.trim()}
+                        className="flex items-center gap-2"
+                      >
+                        <Link2 className="h-4 w-4" />
+                        Link Customer
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Enter a Stripe customer ID (e.g., cus_xxx) to link this client to a Stripe customer.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center justify-between pt-2">
               {mode === 'edit' && onDelete && (
                 <Button
@@ -366,6 +573,7 @@ export default function AdminClientsPage() {
             owner_user_id,
             hours_monthly,
             hours_used_month,
+            stripe_customer_id,
             plans(name)
           `
           )
@@ -433,6 +641,7 @@ export default function AdminClientsPage() {
             plan_name: planName,
             usage_percent: usagePercent,
             risk_flag: riskFlag,
+            stripe_customer_id: c.stripe_customer_id || null,
           }
         })
 

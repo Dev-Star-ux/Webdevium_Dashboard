@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getServerSupabase } from '@/lib/supabase/server'
-import { getAdminSupabase } from '@/lib/supabase/admin'
 
 const createClientSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -22,17 +21,8 @@ async function assertIsAdmin() {
     return { ok: false, status: 401 as const, error: 'Unauthorized' }
   }
 
-  // Use admin client to check users.role (bypasses RLS)
-  let adminSupabase
-  try {
-    adminSupabase = getAdminSupabase()
-  } catch (error: any) {
-    console.error('Failed to initialize admin Supabase client:', error.message)
-    return { ok: false, status: 500 as const, error: 'Server configuration error' }
-  }
-
-  // Check users.role for admin/pm (primary check)
-  const { data: userRecord, error: userRecordError } = await adminSupabase
+  // First, try to check users.role using regular client (if RLS allows)
+  const { data: userRecord, error: userRecordError } = await supabase
     .from('users')
     .select('role')
     .eq('id', user.id)
@@ -42,8 +32,8 @@ async function assertIsAdmin() {
     return { ok: true as const }
   }
 
-  // Fallback to client_members check
-  const { data: memberships, error: membershipsError } = await adminSupabase
+  // Fallback to client_members check (like other endpoints)
+  const { data: memberships, error: membershipsError } = await supabase
     .from('client_members')
     .select('role')
     .eq('user_id', user.id)
@@ -61,6 +51,7 @@ async function assertIsAdmin() {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await getServerSupabase()
   const authCheck = await assertIsAdmin()
   if (!authCheck.ok) {
     return NextResponse.json({ error: authCheck.error }, { status: authCheck.status })
@@ -73,8 +64,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const adminSupabase = getAdminSupabase()
-  const { data, error } = await adminSupabase
+  // Use regular Supabase client (RLS should allow admin/pm to create clients)
+  const { data, error } = await supabase
     .from('clients')
     .insert({
       name: parsed.data.name,
