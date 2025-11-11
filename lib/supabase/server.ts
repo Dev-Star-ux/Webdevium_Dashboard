@@ -11,6 +11,20 @@ export async function getServerSupabase() {
         get(name: string) {
           return cookieStore.get(name)?.value
         },
+        set(name: string, value: string, options: any) {
+          try {
+            cookieStore.set({ name, value, ...options })
+          } catch (error) {
+            // Ignore errors in API routes - cookies are read-only in some contexts
+          }
+        },
+        remove(name: string, options: any) {
+          try {
+            cookieStore.set({ name, value: '', ...options })
+          } catch (error) {
+            // Ignore errors in API routes
+          }
+        },
       },
     }
   )
