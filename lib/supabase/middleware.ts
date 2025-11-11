@@ -82,6 +82,33 @@ export async function updateSession(request: NextRequest) {
   // Redirect to dashboard if already logged in and trying to access auth pages
   const authPages = ['/login', '/signup', '/forgot-password']
   if (user && authPages.includes(request.nextUrl.pathname)) {
+    // Check if user is admin/pm and redirect accordingly
+    const { data: userRecord } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (userRecord && (userRecord.role === 'admin' || userRecord.role === 'pm')) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/admin/dashboard'
+      return NextResponse.redirect(url)
+    }
+
+    // Fallback to client_members check
+    const { data: membership } = await supabase
+      .from('client_members')
+      .select('role')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle()
+
+    if (membership && (membership.role === 'admin' || membership.role === 'pm')) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/admin/dashboard'
+      return NextResponse.redirect(url)
+    }
+
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)

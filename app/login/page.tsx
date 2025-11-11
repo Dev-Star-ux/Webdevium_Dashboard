@@ -33,6 +33,35 @@ export default function LoginPage() {
       }
 
       if (data.user) {
+        // Check if user is admin/pm and redirect accordingly
+        const { data: userRecord } = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', data.user.id)
+          .maybeSingle()
+
+        // Check users.role first
+        if (userRecord && (userRecord.role === 'admin' || userRecord.role === 'pm')) {
+          router.push('/admin/dashboard')
+          router.refresh()
+          return
+        }
+
+        // Fallback to client_members check
+        const { data: membership } = await supabase
+          .from('client_members')
+          .select('role')
+          .eq('user_id', data.user.id)
+          .limit(1)
+          .maybeSingle()
+
+        if (membership && (membership.role === 'admin' || membership.role === 'pm')) {
+          router.push('/admin/dashboard')
+          router.refresh()
+          return
+        }
+
+        // Regular client user
         router.push('/dashboard')
         router.refresh()
       }
