@@ -89,15 +89,17 @@ export async function updateSession(request: NextRequest) {
       .eq('id', user.id)
       .maybeSingle()
 
+      console.log(userRecord?.role)
+
     // If user record doesn't exist, it will be created via trigger with role='client'
-    // Check if user is admin/pm (from users.role)
+    // ONLY check users.role for global admin/pm (not client_members.role which is per-client)
     if (userRecord && (userRecord.role === 'admin' || userRecord.role === 'pm')) {
       const url = request.nextUrl.clone()
       url.pathname = '/admin/dashboard'
       return NextResponse.redirect(url)
     }
 
-    // Fallback to client_members check for admin/pm
+    // For client users, check if they have a client membership
     const { data: membership } = await supabase
       .from('client_members')
       .select('role')
@@ -105,13 +107,6 @@ export async function updateSession(request: NextRequest) {
       .limit(1)
       .maybeSingle()
 
-    if (membership && (membership.role === 'admin' || membership.role === 'pm')) {
-      const url = request.nextUrl.clone()
-      url.pathname = '/admin/dashboard'
-      return NextResponse.redirect(url)
-    }
-
-    // Check if user has a client membership
     if (!membership) {
       // No client membership - redirect to onboarding
       // User has role='client' but needs to complete onboarding
@@ -121,6 +116,8 @@ export async function updateSession(request: NextRequest) {
     }
 
     // Regular client user with membership - redirect to client dashboard
+    // Note: Even if client_members.role is 'admin' or 'pm', if users.role is 'client',
+    // they should go to the client dashboard, not admin dashboard
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)

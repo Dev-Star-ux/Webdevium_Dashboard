@@ -57,7 +57,6 @@ function useDashboardData() {
         return
       }
 
-      // Check if admin - redirect immediately if so
       if (membership.role === 'admin' || membership.role === 'pm') {
         if (typeof window !== 'undefined') {
           window.location.href = '/admin/dashboard'
@@ -264,9 +263,9 @@ function RecentActivity({ tasks }: { tasks: RecentTask[] }) {
               <div className="flex-1">
                 <p className="font-medium">{task.title}</p>
                 <p className="text-sm text-muted-foreground">
-                  {task.status === 'done' && (task.completed_at ? `Completed ${new Date(task.completed_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}` : 'Completed')}
-                  {task.status === 'in_progress' && task.created_at && `In progress since ${new Date(task.created_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}`}
-                  {task.status === 'queued' && task.created_at && `Queued ${new Date(task.created_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}`}
+                  {task.status === 'done' && (task.completed_at ? `Completed ${new Date(task.completed_at).toLocaleString()}` : 'Completed')}
+                  {task.status === 'in_progress' && `In progress since ${new Date(task.created_at).toLocaleString()}`}
+                  {task.status === 'queued' && `Queued ${new Date(task.created_at).toLocaleString()}`}
                 </p>
               </div>
               <Badge 

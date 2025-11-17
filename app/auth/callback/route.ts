@@ -54,12 +54,12 @@ export async function GET(request: Request) {
         })
     }
 
-    // Check if user is admin/pm (from users.role)
+    // ONLY check users.role for global admin/pm (not client_members.role which is per-client)
     if (userRecord && (userRecord.role === 'admin' || userRecord.role === 'pm')) {
       return NextResponse.redirect(`${origin}/admin/dashboard`)
     }
 
-    // Fallback to client_members check for admin/pm
+    // For client users, check if they have a client membership
     const { data: membership } = await supabase
       .from('client_members')
       .select('role')
@@ -67,11 +67,6 @@ export async function GET(request: Request) {
       .limit(1)
       .maybeSingle()
 
-    if (membership && (membership.role === 'admin' || membership.role === 'pm')) {
-      return NextResponse.redirect(`${origin}/admin/dashboard`)
-    }
-
-    // Check if user has any client membership
     if (!membership) {
       // No client membership - redirect to onboarding
       // User has role='client' but needs to complete onboarding
@@ -79,6 +74,8 @@ export async function GET(request: Request) {
     }
 
     // Regular client user with membership - redirect to client dashboard
+    // Note: Even if client_members.role is 'admin' or 'pm', if users.role is 'client',
+    // they should go to the client dashboard, not admin dashboard
     return NextResponse.redirect(`${origin}/dashboard`)
   }
 
