@@ -82,20 +82,22 @@ export async function updateSession(request: NextRequest) {
   // Redirect to dashboard if already logged in and trying to access auth pages
   const authPages = ['/login', '/signup', '/forgot-password']
   if (user && authPages.includes(request.nextUrl.pathname)) {
-    // Check if user is admin/pm and redirect accordingly
+    // Check user role - ensure it's 'client' for regular users, not 'user'
     const { data: userRecord } = await supabase
       .from('users')
       .select('role')
       .eq('id', user.id)
       .maybeSingle()
 
+    // If user record doesn't exist, it will be created via trigger with role='client'
+    // Check if user is admin/pm (from users.role)
     if (userRecord && (userRecord.role === 'admin' || userRecord.role === 'pm')) {
       const url = request.nextUrl.clone()
       url.pathname = '/admin/dashboard'
       return NextResponse.redirect(url)
     }
 
-    // Fallback to client_members check
+    // Fallback to client_members check for admin/pm
     const { data: membership } = await supabase
       .from('client_members')
       .select('role')
@@ -112,11 +114,13 @@ export async function updateSession(request: NextRequest) {
     // Check if user has a client membership
     if (!membership) {
       // No client membership - redirect to onboarding
+      // User has role='client' but needs to complete onboarding
       const url = request.nextUrl.clone()
       url.pathname = '/onboarding'
       return NextResponse.redirect(url)
     }
 
+    // Regular client user with membership - redirect to client dashboard
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)

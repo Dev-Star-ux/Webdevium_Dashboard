@@ -36,18 +36,30 @@ export async function GET(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
 
   if (user) {
-    // Check users.role first
+    // Ensure user record exists with role='client' if not admin/pm
     const { data: userRecord } = await supabase
       .from('users')
       .select('role')
       .eq('id', user.id)
       .maybeSingle()
 
+    // If user record doesn't exist, create it with role='client'
+    if (!userRecord) {
+      await supabase
+        .from('users')
+        .insert({
+          id: user.id,
+          email: user.email || '',
+          role: 'client', // Default role is 'client', not 'user'
+        })
+    }
+
+    // Check if user is admin/pm (from users.role)
     if (userRecord && (userRecord.role === 'admin' || userRecord.role === 'pm')) {
       return NextResponse.redirect(`${origin}/admin/dashboard`)
     }
 
-    // Fallback to client_members check
+    // Fallback to client_members check for admin/pm
     const { data: membership } = await supabase
       .from('client_members')
       .select('role')
@@ -62,11 +74,15 @@ export async function GET(request: Request) {
     // Check if user has any client membership
     if (!membership) {
       // No client membership - redirect to onboarding
+      // User has role='client' but needs to complete onboarding
       return NextResponse.redirect(`${origin}/onboarding`)
     }
+
+    // Regular client user with membership - redirect to client dashboard
+    return NextResponse.redirect(`${origin}/dashboard`)
   }
 
-  // Redirect to dashboard after successful authentication
-  return NextResponse.redirect(`${origin}/dashboard`)
+  // Not authenticated - redirect to login
+  return NextResponse.redirect(`${origin}/login`)
 }
 

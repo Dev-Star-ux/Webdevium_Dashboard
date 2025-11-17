@@ -33,21 +33,36 @@ export default function LoginPage() {
       }
 
       if (data.user) {
-        // Check if user is admin/pm and redirect accordingly
-        const { data: userRecord } = await supabase
+        // Ensure user record exists with role='client' if not admin/pm
+        let { data: userRecord } = await supabase
           .from('users')
           .select('role')
           .eq('id', data.user.id)
           .maybeSingle()
 
-        // Check users.role first
+        // If user record doesn't exist, create it with role='client'
+        if (!userRecord) {
+          const { error: createError } = await supabase
+            .from('users')
+            .insert({
+              id: data.user.id,
+              email: data.user.email || '',
+              role: 'client', // Default role is 'client', not 'user'
+            })
+          
+          if (!createError) {
+            userRecord = { role: 'client' }
+          }
+        }
+
+        // Check if user is admin/pm (from users.role)
         if (userRecord && (userRecord.role === 'admin' || userRecord.role === 'pm')) {
           router.push('/admin/dashboard')
           router.refresh()
           return
         }
 
-        // Fallback to client_members check
+        // Fallback to client_members check for admin/pm
         const { data: membership } = await supabase
           .from('client_members')
           .select('role')
@@ -64,12 +79,13 @@ export default function LoginPage() {
         // Check if user has a client membership
         if (!membership) {
           // No client membership - redirect to onboarding
+          // User has role='client' but needs to complete onboarding
           router.push('/onboarding')
           router.refresh()
           return
         }
 
-        // Regular client user
+        // Regular client user with membership - redirect to client dashboard
         router.push('/dashboard')
         router.refresh()
       }

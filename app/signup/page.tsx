@@ -44,10 +44,44 @@ export default function SignupPage() {
       }
 
       if (data.user) {
+        // Ensure user record exists in public.users with role='client'
+        const { data: existingUser } = await supabase
+          .from('users')
+          .select('id, role')
+          .eq('id', data.user.id)
+          .maybeSingle()
+
+        if (!existingUser) {
+          // Create user record with role='client'
+          await supabase
+            .from('users')
+            .insert({
+              id: data.user.id,
+              email: data.user.email || '',
+              role: 'client', // All regular users are clients by default
+            })
+        } else if (existingUser.role !== 'client' && existingUser.role !== 'admin' && existingUser.role !== 'pm') {
+          // Update role to 'client' if it's not already set correctly
+          await supabase
+            .from('users')
+            .update({ role: 'client' })
+            .eq('id', data.user.id)
+        }
+
         setSuccess(true)
-        // Redirect to dashboard after a short delay
+        // Redirect to onboarding if no client membership, otherwise dashboard
+        const { data: membership } = await supabase
+          .from('client_members')
+          .select('client_id')
+          .eq('user_id', data.user.id)
+          .maybeSingle()
+
         setTimeout(() => {
-          router.push('/dashboard')
+          if (!membership) {
+            router.push('/onboarding')
+          } else {
+            router.push('/dashboard')
+          }
           router.refresh()
         }, 2000)
       }
