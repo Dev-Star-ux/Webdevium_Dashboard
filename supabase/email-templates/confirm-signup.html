@@ -46,19 +46,47 @@
     .cta-button {
       display: inline-block;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: #ffffff;
-      text-decoration: none;
-      padding: 16px 40px;
-      border-radius: 8px;
-      font-weight: 600;
-      font-size: 16px;
+      background-color: #667eea; /* Fallback for email clients that don't support gradients */
+      color: #ffffff !important;
+      text-decoration: none !important;
+      padding: 18px 48px;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 17px;
       text-align: center;
-      box-shadow: 0 4px 6px rgba(102, 126, 234, 0.3);
-      transition: transform 0.2s;
+      box-shadow: 0 8px 20px rgba(102, 126, 234, 0.35), 
+                  0 4px 10px rgba(118, 75, 162, 0.25);
+      -webkit-box-shadow: 0 8px 20px rgba(102, 126, 234, 0.35), 
+                          0 4px 10px rgba(118, 75, 162, 0.25);
+      -moz-box-shadow: 0 8px 20px rgba(102, 126, 234, 0.35), 
+                       0 4px 10px rgba(118, 75, 162, 0.25);
+      transition: all 0.3s ease;
+      -webkit-transition: all 0.3s ease;
+      letter-spacing: 0.3px;
+      border: 2px solid transparent;
+      position: relative;
+      line-height: 1.5;
     }
     .cta-button:hover {
+      background: linear-gradient(135deg, #7c8ef0 0%, #8a5fb8 100%);
+      background-color: #7c8ef0; /* Fallback */
+      box-shadow: 0 12px 30px rgba(102, 126, 234, 0.45), 
+                  0 6px 15px rgba(118, 75, 162, 0.35);
+      -webkit-box-shadow: 0 12px 30px rgba(102, 126, 234, 0.45), 
+                          0 6px 15px rgba(118, 75, 162, 0.35);
+      -moz-box-shadow: 0 12px 30px rgba(102, 126, 234, 0.45), 
+                       0 6px 15px rgba(118, 75, 162, 0.35);
       transform: translateY(-2px);
-      box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+      -webkit-transform: translateY(-2px);
+      -moz-transform: translateY(-2px);
+    }
+    .button-icon {
+      display: inline-block;
+      margin-right: 10px;
+      font-size: 20px;
+      vertical-align: middle;
+      line-height: 1;
+      font-weight: bold;
     }
     .button-container {
       text-align: center;
@@ -131,6 +159,13 @@
         display: block;
         width: 100%;
         box-sizing: border-box;
+        padding: 18px 24px;
+        font-size: 16px;
+        text-align: center;
+      }
+      .button-icon {
+        font-size: 18px;
+        margin-right: 8px;
       }
     }
   </style>
@@ -152,8 +187,10 @@
       </p>
 
       <!-- CTA Button -->
+      <!-- Note: {{ .ConfirmationURL }} already includes the redirect_to parameter if emailRedirectTo was passed during signup -->
       <div class="button-container">
-        <a href="{{ .ConfirmationURL }}" class="cta-button">
+        <a href="{{ .ConfirmationURL }}" class="cta-button" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-color: #667eea; color: #ffffff !important; text-decoration: none !important; padding: 18px 48px; border-radius: 12px; font-weight: 700; font-size: 17px; text-align: center; box-shadow: 0 8px 20px rgba(102, 126, 234, 0.35), 0 4px 10px rgba(118, 75, 162, 0.25); letter-spacing: 0.3px; border: 2px solid transparent; line-height: 1.5;">
+          <span class="button-icon" style="display: inline-block; margin-right: 10px; font-size: 20px; vertical-align: middle; line-height: 1; font-weight: bold;">✓</span>
           Confirm Your Email
         </a>
       </div>
