@@ -186,7 +186,7 @@ function TaskCard({ task, canReorder = false, onEdit }: TaskCardProps) {
 
         <div className="flex items-center text-xs text-muted-foreground">
           <Calendar className="h-3 w-3 mr-1" />
-          {task.created_at ? new Date(task.created_at).toLocaleDateString() : 'N/A'}
+          {task.created_at ? new Date(task.created_at).toLocaleDateString('en-US', { dateStyle: 'short' }) : 'N/A'}
         </div>
 
         {task.assigned_dev && (
@@ -763,7 +763,7 @@ export default function TasksPage() {
 
                           <div className="flex items-center text-xs text-muted-foreground">
                             <Calendar className="h-3 w-3 mr-1" />
-                            {activeTask.created_at ? new Date(activeTask.created_at).toLocaleDateString() : 'N/A'}
+                            {activeTask.created_at ? new Date(activeTask.created_at).toLocaleDateString('en-US', { dateStyle: 'short' }) : 'N/A'}
                           </div>
 
                           {activeTask.assigned_dev && (

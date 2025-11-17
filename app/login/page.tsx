@@ -61,6 +61,14 @@ export default function LoginPage() {
           return
         }
 
+        // Check if user has a client membership
+        if (!membership) {
+          // No client membership - redirect to onboarding
+          router.push('/onboarding')
+          router.refresh()
+          return
+        }
+
         // Regular client user
         router.push('/dashboard')
         router.refresh()

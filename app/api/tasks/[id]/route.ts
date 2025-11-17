@@ -58,15 +58,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
   
+  // Get current task data to check status change
+  const { data: currentTask } = await supabase
+    .from('tasks')
+    .select('status, completed_at, client_id, hours_spent')
+    .eq('id', id)
+    .single()
+
+  if (!currentTask) {
+    return NextResponse.json({ error: 'Task not found' }, { status: 404 })
+  }
+
+  const wasNotDone = currentTask.status !== 'done'
+  const isMovingToDone = updateData.status === 'done' && wasNotDone
+
   if (updateData.status === 'done') {
     // Only set completed_at if it's not already set
-    const { data: currentTask } = await supabase
-      .from('tasks')
-      .select('completed_at')
-      .eq('id', id)
-      .single()
-    
-    if (!currentTask?.completed_at) {
+    if (!currentTask.completed_at) {
       updateData.completed_at = new Date().toISOString()
     }
   } else if (updateData.status && updateData.status !== 'done') {
@@ -84,6 +92,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+
+  // If task was moved to done, automatically log usage
+  if (isMovingToDone && data && currentTask.client_id) {
+    // Use hours_spent if available, otherwise use est_hours, default to 1 hour
+    const hoursToLog = data.hours_spent || data.est_hours || 1
+    
+    if (hoursToLog > 0) {
+      // Log usage asynchronously - don't fail task update if this fails
+      const { data: { user } } = await supabase.auth.getUser()
+      Promise.resolve(supabase.from('usage_logs').insert({
+        client_id: currentTask.client_id,
+        task_id: id,
+        hours: hoursToLog,
+        logged_by: user?.id ?? null,
+      })).then(({ error: logError }) => {
+        if (logError) {
+          console.error('Failed to log usage:', logError)
+        }
+      }).catch((err: unknown) => {
+        console.error('Error logging usage:', err)
+      })
+    }
+  }
+
   return NextResponse.json({ task: data })
 }
 

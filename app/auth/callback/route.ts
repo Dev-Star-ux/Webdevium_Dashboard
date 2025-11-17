@@ -58,6 +58,12 @@ export async function GET(request: Request) {
     if (membership && (membership.role === 'admin' || membership.role === 'pm')) {
       return NextResponse.redirect(`${origin}/admin/dashboard`)
     }
+
+    // Check if user has any client membership
+    if (!membership) {
+      // No client membership - redirect to onboarding
+      return NextResponse.redirect(`${origin}/onboarding`)
+    }
   }
 
   // Redirect to dashboard after successful authentication
