@@ -8,6 +8,7 @@ import { Users, CheckSquare, Clock, TrendingUp, AlertTriangle, Activity } from '
 import { useEffect, useState } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import { useUser } from '@/contexts/user-context'
 
 type ClientSummary = {
   total: number
@@ -24,6 +25,8 @@ type TaskSummary = {
 }
 
 export default function AdminDashboardPage() {
+  // Use cached user data from context instead of fetching
+  const { user, isAdmin: isUserAdmin, loading: userLoading, userRole } = useUser()
   const [loading, setLoading] = useState(true)
   const [clientSummary, setClientSummary] = useState<ClientSummary>({
     total: 0,
@@ -42,36 +45,34 @@ export default function AdminDashboardPage() {
   const supabase = getBrowserSupabase()
 
   useEffect(() => {
+    // Wait for user data to load
+    if (userLoading) return
+
+    let cancelled = false
+    
     async function load() {
+      // Use cached user data from context
+      if (!user) {
+        router.push('/login')
+        return
+      }
+
+      // Check if user is admin using cached data
+      if (!isUserAdmin && userRole !== 'admin' && userRole !== 'pm') {
+        router.push('/dashboard')
+        return
+      }
+
       setLoading(true)
       try {
-        // Get user and verify admin/pm
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) {
-          router.push('/login')
-          return
-        }
 
-        const { data: memberships, error: membershipsError } = await supabase
-          .from('client_members')
-          .select('role')
-          .eq('user_id', user.id)
-
-        if (membershipsError) {
-          throw membershipsError
-        }
-
-        const isAdminOrPM = memberships?.some(m => m.role === 'admin' || m.role === 'pm')
-        
-        if (!isAdminOrPM) {
-          router.push('/dashboard')
-          return
-        }
-
+        // Optimize: Use count() queries instead of fetching all data
         const [
           { data: clientsData, error: clientsError },
           { data: usageData, error: usageError },
-          { data: tasksData, error: tasksError },
+          { count: queuedCount, error: queuedError },
+          { count: inProgressCount, error: inProgressError },
+          { count: doneCount, error: doneError },
         ] = await Promise.all([
           supabase
             .from('clients')
@@ -81,7 +82,16 @@ export default function AdminDashboardPage() {
             .select('client_id, pct_used'),
           supabase
             .from('tasks')
-            .select('status'),
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'queued'),
+          supabase
+            .from('tasks')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'in_progress'),
+          supabase
+            .from('tasks')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'done'),
         ])
 
         if (clientsError) {
@@ -90,9 +100,12 @@ export default function AdminDashboardPage() {
         if (usageError) {
           throw usageError
         }
-        if (tasksError) {
-          throw tasksError
+        if (queuedError || inProgressError || doneError) {
+          throw queuedError || inProgressError || doneError
         }
+
+        // Calculate total tasks from counts (much faster than fetching all)
+        const totalTasks = (queuedCount ?? 0) + (inProgressCount ?? 0) + (doneCount ?? 0)
 
         if (clientsData && usageData) {
           const usageMap = new Map()
@@ -128,24 +141,30 @@ export default function AdminDashboardPage() {
           setRecentClients(recentClientsWithUsage)
         }
 
-        if (tasksData) {
-          setTaskSummary({
-            total: tasksData.length,
-            queued: tasksData.filter(t => t.status === 'queued').length,
-            inProgress: tasksData.filter(t => t.status === 'in_progress').length,
-            done: tasksData.filter(t => t.status === 'done').length,
-          })
-        }
+        // Use counts from optimized queries
+        setTaskSummary({
+          total: totalTasks,
+          queued: queuedCount ?? 0,
+          inProgress: inProgressCount ?? 0,
+          done: doneCount ?? 0,
+        })
       } catch (e) {
         console.error('Failed to load dashboard:', e)
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
+    
     load()
-  }, [supabase, router])
+    
+    return () => {
+      cancelled = true
+    }
+  }, [supabase, router, user, isUserAdmin, userRole, userLoading])
 
-  if (loading) {
+  if (loading || userLoading) {
     return (
       <DashboardLayout isAdmin={true}>
         <Card>

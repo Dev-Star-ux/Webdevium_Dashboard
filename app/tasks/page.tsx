@@ -5,11 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Plus, MoreHorizontal, Paperclip, Calendar, User } from 'lucide-react'
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { SubmitTaskDialog } from '@/components/tasks/submit-task-dialog'
 import { EditTaskDialog } from '@/components/tasks/edit-task-dialog'
 import { useRouter } from 'next/navigation'
+import { useUser } from '@/contexts/user-context'
 import {
   DndContext,
   closestCenter,
@@ -264,13 +265,13 @@ function KanbanColumn({ title, tasks, canReorder = false, count, status, onEditT
 }
 
 export default function TasksPage() {
+  // Use cached user data from context instead of fetching
+  const { clientId, userRole, loading: userLoading, membership, isAdmin } = useUser()
   const [loading, setLoading] = useState(true)
-  const [clientId, setClientId] = useState<string | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [submitTaskOpen, setSubmitTaskOpen] = useState(false)
   const [editTaskOpen, setEditTaskOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
-  const [userRole, setUserRole] = useState<'admin' | 'pm' | 'dev' | 'client' | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
   const router = useRouter()
   const supabase = getBrowserSupabase()
@@ -286,39 +287,48 @@ export default function TasksPage() {
     })
   )
 
-  // Fetch user role and tasks
+  // Fetch tasks (user data comes from context)
   useEffect(() => {
+    // Wait for user data to load
+    if (userLoading) return
+
+    let cancelled = false
+    
     async function loadTasks() {
+      // Use cached user data from context
+      if (!membership?.client_id) {
+        // Redirect to onboarding if no client (use client-side navigation)
+        router.push('/onboarding')
+        return
+      }
+
       setLoading(true)
       try {
-        // Parallel: Get user and membership at once
-        const [{ data: { user } }, { data: membership }] = await Promise.all([
-          supabase.auth.getUser(),
-          supabase.from('client_members').select('client_id, role').limit(1).maybeSingle()
-        ])
-
-        if (!user || !membership?.client_id) {
-          // Redirect to onboarding if no client
-          if (typeof window !== 'undefined') {
-            window.location.href = '/onboarding'
-          }
-          return
-        }
-
-        setClientId(membership.client_id)
-        setUserRole(membership.role as 'admin' | 'pm' | 'dev' | 'client' | null)
+        const clientId = membership.client_id
 
         // Fetch tasks with assigned dev info (limit to prevent large loads)
         const { data: tasksData, error } = await supabase
           .from('tasks')
           .select(`
-            *,
+            id,
+            title,
+            description,
+            priority,
+            status,
+            created_at,
+            completed_at,
+            assigned_dev_id,
+            est_hours,
+            hours_spent,
+            position,
             assigned_dev:users!tasks_assigned_dev_id_fkey(id, email)
           `)
           .eq('client_id', membership.client_id)
           .order('position', { ascending: true })
           .order('created_at', { ascending: false })
           .limit(100) // Limit to prevent performance issues
+
+        if (cancelled) return
 
         if (error) {
           console.error('Error fetching tasks:', error)
@@ -328,12 +338,18 @@ export default function TasksPage() {
       } catch (e) {
         console.error('Failed to load tasks:', e)
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
 
     loadTasks()
-  }, [supabase])
+    
+    return () => {
+      cancelled = true
+    }
+  }, [supabase, router, membership, userLoading])
 
   const onEditTask = (task: Task) => {
     setSelectedTask(task)
@@ -365,19 +381,6 @@ export default function TasksPage() {
     return priority.charAt(0).toUpperCase() + priority.slice(1).toLowerCase()
   }
 
-  // Sort tasks by priority (high first), then by position
-  const sortTasksByPriority = (taskList: Task[]) => {
-    return [...taskList].sort((a, b) => {
-      // First sort by priority (high first)
-      const priorityDiff = getPriorityValue(b.priority) - getPriorityValue(a.priority)
-      if (priorityDiff !== 0) return priorityDiff
-      
-      // Then sort by position
-      const posA = a.position ?? 0
-      const posB = b.position ?? 0
-      return posA - posB
-    })
-  }
 
   // Handle drag start to track active item
   function handleDragStart(event: DragStartEvent) {
@@ -633,10 +636,27 @@ export default function TasksPage() {
     }
   }, [clientId, supabase])
 
-  // Group tasks by status and sort by priority
-  const queuedTasks = sortTasksByPriority(tasks.filter(t => t.status === 'queued'))
-  const inProgressTasks = sortTasksByPriority(tasks.filter(t => t.status === 'in_progress'))
-  const doneTasks = sortTasksByPriority(tasks.filter(t => t.status === 'done'))
+  // Memoize sort function to avoid recreation
+  const sortTasksByPriority = useCallback((taskList: Task[]) => {
+    return [...taskList].sort((a, b) => {
+      // First sort by priority (high first)
+      const priorityDiff = getPriorityValue(b.priority) - getPriorityValue(a.priority)
+      if (priorityDiff !== 0) return priorityDiff
+      
+      // Then sort by position
+      const posA = a.position ?? 0
+      const posB = b.position ?? 0
+      return posA - posB
+    })
+  }, [getPriorityValue])
+
+  // Memoize grouped and sorted tasks to avoid recalculation on every render
+  const { queuedTasks, inProgressTasks, doneTasks } = useMemo(() => {
+    const queued = sortTasksByPriority(tasks.filter(t => t.status === 'queued'))
+    const inProgress = sortTasksByPriority(tasks.filter(t => t.status === 'in_progress'))
+    const done = sortTasksByPriority(tasks.filter(t => t.status === 'done'))
+    return { queuedTasks: queued, inProgressTasks: inProgress, doneTasks: done }
+  }, [tasks, sortTasksByPriority])
 
   return (
     <DashboardLayout>

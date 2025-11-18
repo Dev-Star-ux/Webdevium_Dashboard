@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { SubmitTaskDialog } from '@/components/tasks/submit-task-dialog'
 import { useRouter } from 'next/navigation'
+import { useUser } from '@/contexts/user-context'
 
 type UsageStatus = 'On Track' | 'Approaching Limit' | 'Exceeded'
 
@@ -22,8 +23,10 @@ type RecentTask = {
 }
 
 function useDashboardData() {
+  const router = useRouter()
+  // Use cached user data from context instead of fetching
+  const { user, membership, clientId: contextClientId, userRole, loading: userLoading, isAdmin } = useUser()
   const [loading, setLoading] = useState(true)
-  const [clientId, setClientId] = useState<string | null>(null)
   const [planName, setPlanName] = useState<string>('')
   const [usagePercent, setUsagePercent] = useState<number>(0)
   const [recentTasks, setRecentTasks] = useState<RecentTask[]>([])
@@ -31,7 +34,17 @@ function useDashboardData() {
   const [avgTurnaroundDays, setAvgTurnaroundDays] = useState<number>(0)
   const [valueDelivered, setValueDelivered] = useState<number>(0)
 
+  // Memoize month start date to avoid recalculation
+  const monthStart = useMemo(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+  }, [])
+
   useEffect(() => {
+    // Wait for user data to load
+    if (userLoading) return
+
+    let cancelled = false
     let supabase: ReturnType<typeof getBrowserSupabase> | null = null
     try {
       supabase = getBrowserSupabase()
@@ -40,77 +53,85 @@ function useDashboardData() {
       setLoading(false)
       return
     }
+    
     async function load() {
+      if (cancelled) return
+
+      // Use cached user data from context
+      if (!user || !membership?.client_id) {
+        // Redirect to onboarding if no client (use client-side navigation)
+        router.push('/onboarding')
+        return
+      }
+
+      if (isAdmin || userRole === 'admin' || userRole === 'pm') {
+        // Use client-side navigation instead of full page reload
+        router.push('/admin/dashboard')
+        return
+      }
+
       setLoading(true)
       
-      // Parallel: Get user and membership in one go
-      const [{ data: { user } }, { data: membership }] = await Promise.all([
-        supabase!.auth.getUser(),
-        supabase!.from('client_members').select('client_id, role').limit(1).maybeSingle()
-      ])
+      try {
+        const clientId = membership.client_id
 
-      if (!user || !membership?.client_id) {
-        // Redirect to onboarding if no client
-        if (typeof window !== 'undefined') {
-          window.location.href = '/onboarding'
+        // Parallel: Fetch all dashboard data at once
+        const [usageRes, tasksRes, clientRes, statsRes, valueRes] = await Promise.all([
+          supabase!.from('v_client_usage').select('hours_monthly,hours_used,pct_used').eq('client_id', clientId).maybeSingle(),
+          supabase!.from('tasks').select('id,title,status,created_at,completed_at').eq('client_id', clientId).order('created_at', { ascending: false }).limit(10),
+          supabase!.from('clients').select('plan_code, plans!inner(name)').eq('id', clientId).single(),
+          supabase!.rpc('calculate_task_stats', { p_client_id: clientId }).maybeSingle(),
+          // Calculate value delivered: sum of hours_spent for completed tasks this month
+          supabase!.from('tasks')
+            .select('hours_spent')
+            .eq('client_id', clientId)
+            .eq('status', 'done')
+            .not('completed_at', 'is', null)
+            .gte('completed_at', monthStart)
+        ])
+
+        if (cancelled) return
+
+        if (usageRes.data) {
+          setUsagePercent(Number(usageRes.data.pct_used ?? 0))
         }
-        return
-      }
-
-      if (membership.role === 'admin' || membership.role === 'pm') {
-        if (typeof window !== 'undefined') {
-          window.location.href = '/admin/dashboard'
+        
+        // Get plan name from clients query
+        if (clientRes.data) {
+          const planName = (clientRes.data as any).plans?.name
+          const planCode = (clientRes.data as any).plan_code
+          setPlanName(planName || planCode || '')
         }
-        return
+
+        if (tasksRes.data) setRecentTasks(tasksRes.data as any)
+
+        if (statsRes?.data) {
+          setTasksCompletedThisMonth(Number((statsRes.data as any).completed_this_month ?? 0))
+          setAvgTurnaroundDays(Number(((statsRes.data as any).avg_turnaround_days ?? 0)))
+        }
+
+        // Calculate value delivered (total hours spent on completed tasks this month)
+        if (valueRes?.data) {
+          const totalHours = (valueRes.data as any[]).reduce((sum, task) => {
+            return sum + (Number(task.hours_spent) || 0)
+          }, 0)
+          setValueDelivered(totalHours)
+        }
+      } catch (error) {
+        console.error('Error loading dashboard:', error)
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
-
-      setClientId(membership.client_id)
-
-      // Parallel: Fetch all dashboard data at once
-      const [usageRes, tasksRes, clientRes, statsRes, valueRes] = await Promise.all([
-        supabase!.from('v_client_usage').select('hours_monthly,hours_used,pct_used').eq('client_id', membership.client_id).maybeSingle(),
-        supabase!.from('tasks').select('id,title,status,created_at,completed_at').eq('client_id', membership.client_id).order('created_at', { ascending: false }).limit(10),
-        supabase!.from('clients').select('plan_code, plans!inner(name)').eq('id', membership.client_id).single(),
-        supabase!.rpc('calculate_task_stats', { p_client_id: membership.client_id }).maybeSingle(),
-        // Calculate value delivered: sum of hours_spent for completed tasks this month
-        supabase!.from('tasks')
-          .select('hours_spent')
-          .eq('client_id', membership.client_id)
-          .eq('status', 'done')
-          .not('completed_at', 'is', null)
-          .gte('completed_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString())
-      ])
-
-      if (usageRes.data) {
-        setUsagePercent(Number(usageRes.data.pct_used ?? 0))
-      }
-      
-      // Get plan name from clients query
-      if (clientRes.data) {
-        const planName = (clientRes.data as any).plans?.name
-        const planCode = (clientRes.data as any).plan_code
-        setPlanName(planName || planCode || '')
-      }
-
-      if (tasksRes.data) setRecentTasks(tasksRes.data as any)
-
-      if (statsRes?.data) {
-        setTasksCompletedThisMonth(Number((statsRes.data as any).completed_this_month ?? 0))
-        setAvgTurnaroundDays(Number(((statsRes.data as any).avg_turnaround_days ?? 0)))
-      }
-
-      // Calculate value delivered (total hours spent on completed tasks this month)
-      if (valueRes?.data) {
-        const totalHours = (valueRes.data as any[]).reduce((sum, task) => {
-          return sum + (Number(task.hours_spent) || 0)
-        }, 0)
-        setValueDelivered(totalHours)
-      }
-
-      setLoading(false)
     }
+    
     load()
-  }, [])
+    
+    return () => {
+      cancelled = true
+    }
+  }, [router, monthStart, user, membership, userLoading, isAdmin, userRole])
 
   const usageStatus: UsageStatus = useMemo(() => {
     if (usagePercent >= 100) return 'Exceeded'
@@ -119,8 +140,8 @@ function useDashboardData() {
   }, [usagePercent])
 
   return {
-    loading,
-    clientId,
+    loading: loading || userLoading,
+    clientId: contextClientId,
     planName,
     usagePercent,
     usageStatus,
@@ -249,7 +270,26 @@ function StatsCards({ planName, tasksCompleted, avgTurnaround, valueDelivered }:
   )
 }
 
-function RecentActivity({ tasks }: { tasks: RecentTask[] }) {
+const RecentActivity = ({ tasks }: { tasks: RecentTask[] }) => {
+  // Memoize formatted dates to avoid recalculation on every render
+  const taskList = useMemo(() => {
+    return tasks.map((task) => {
+      let dateStr = ''
+      if (task.status === 'done' && task.completed_at) {
+        dateStr = `Completed ${new Date(task.completed_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}`
+      } else if (task.status === 'in_progress' && task.created_at) {
+        dateStr = `In progress since ${new Date(task.created_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}`
+      } else if (task.status === 'queued' && task.created_at) {
+        dateStr = `Queued ${new Date(task.created_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}`
+      }
+      
+      return {
+        ...task,
+        formattedDate: dateStr || (task.status === 'done' ? 'Completed' : ''),
+      }
+    })
+  }, [tasks])
+
   return (
     <Card>
       <CardHeader>
@@ -258,15 +298,11 @@ function RecentActivity({ tasks }: { tasks: RecentTask[] }) {
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          {tasks.map((task) => (
+          {taskList.map((task) => (
             <div key={task.id} className="flex items-center justify-between p-3 border rounded-lg">
               <div className="flex-1">
                 <p className="font-medium">{task.title}</p>
-                <p className="text-sm text-muted-foreground">
-                  {task.status === 'done' && (task.completed_at ? `Completed ${new Date(task.completed_at).toLocaleString()}` : 'Completed')}
-                  {task.status === 'in_progress' && `In progress since ${new Date(task.created_at).toLocaleString()}`}
-                  {task.status === 'queued' && `Queued ${new Date(task.created_at).toLocaleString()}`}
-                </p>
+                <p className="text-sm text-muted-foreground">{task.formattedDate}</p>
               </div>
               <Badge 
                 variant={task.status === 'done' ? 'success' : task.status === 'in_progress' ? 'default' : 'secondary'}

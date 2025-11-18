@@ -10,10 +10,12 @@ import { CreditCard, Save, CheckCircle, XCircle, ExternalLink, Copy, Key, Webhoo
 import { useState, useEffect } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import { useUser } from '@/contexts/user-context'
 
 export default function SettingsPage() {
+  // Use cached user data from context instead of fetching
+  const { user, userRole, loading: userLoading } = useUser()
   const [loading, setLoading] = useState(true)
-  const [userRole, setUserRole] = useState<'admin' | 'pm' | 'dev' | 'client' | null>(null)
   const [stripeConfig, setStripeConfig] = useState({
     apiKeyStatus: 'unknown',
     webhookUrl: '',
@@ -31,26 +33,18 @@ export default function SettingsPage() {
   const supabase = getBrowserSupabase()
 
   useEffect(() => {
+    // Wait for user data to load
+    if (userLoading) return
+
     async function load() {
+      // Use cached user data from context
+      if (!user) {
+        router.push('/login')
+        return
+      }
+
       setLoading(true)
       try {
-        // Get user role
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) {
-          router.push('/login')
-          return
-        }
-
-        const { data: membership } = await supabase
-          .from('client_members')
-          .select('role')
-          .eq('user_id', user.id)
-          .limit(1)
-          .maybeSingle()
-
-        if (membership) {
-          setUserRole(membership.role as 'admin' | 'pm' | 'dev' | 'client' | null)
-        }
 
         // Load Stripe configuration
         const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
@@ -77,7 +71,7 @@ export default function SettingsPage() {
       }
     }
     load()
-  }, [supabase, router])
+  }, [supabase, router, user, userLoading])
 
   const isAdminOrPM = userRole === 'admin' || userRole === 'pm'
 

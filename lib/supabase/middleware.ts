@@ -82,14 +82,20 @@ export async function updateSession(request: NextRequest) {
   // Redirect to dashboard if already logged in and trying to access auth pages
   const authPages = ['/login', '/signup', '/forgot-password']
   if (user && authPages.includes(request.nextUrl.pathname)) {
-    // Check user role - ensure it's 'client' for regular users, not 'user'
-    const { data: userRecord } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .maybeSingle()
-
-      console.log(userRecord?.role)
+    // Parallel: Check user role and membership at once for better performance
+    const [{ data: userRecord }, { data: membership }] = await Promise.all([
+      supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle(),
+      supabase
+        .from('client_members')
+        .select('role')
+        .eq('user_id', user.id)
+        .limit(1)
+        .maybeSingle()
+    ])
 
     // If user record doesn't exist, it will be created via trigger with role='client'
     // ONLY check users.role for global admin/pm (not client_members.role which is per-client)
@@ -98,14 +104,6 @@ export async function updateSession(request: NextRequest) {
       url.pathname = '/admin/dashboard'
       return NextResponse.redirect(url)
     }
-
-    // For client users, check if they have a client membership
-    const { data: membership } = await supabase
-      .from('client_members')
-      .select('role')
-      .eq('user_id', user.id)
-      .limit(1)
-      .maybeSingle()
 
     if (!membership) {
       // No client membership - redirect to onboarding

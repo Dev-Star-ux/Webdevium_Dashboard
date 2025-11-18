@@ -9,10 +9,12 @@ import { CreditCard, Download, Calendar, DollarSign, AlertTriangle, ExternalLink
 import { useEffect, useState } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import { useUser } from '@/contexts/user-context'
 
 export default function BillingPage() {
+  // Use cached user data from context instead of fetching
+  const { membership, clientId: contextClientId, loading: userLoading } = useUser()
   const [loading, setLoading] = useState(true)
-  const [clientId, setClientId] = useState<string | null>(null)
   const [planName, setPlanName] = useState<string>('')
   const [usagePercent, setUsagePercent] = useState<number>(0)
   const [hoursUsed, setHoursUsed] = useState<number>(0)
@@ -23,21 +25,19 @@ export default function BillingPage() {
   const supabase = getBrowserSupabase()
 
   useEffect(() => {
+    // Wait for user data to load
+    if (userLoading) return
+
     async function load() {
+      // Use cached user data from context
+      if (!membership?.client_id) {
+        router.push('/onboarding')
+        return
+      }
+
       setLoading(true)
       try {
-        // Parallel: Get membership and user check
-        const [{ data: membership }, { data: { user } }] = await Promise.all([
-          supabase.from('client_members').select('client_id').limit(1).maybeSingle(),
-          supabase.auth.getUser()
-        ])
-
-        if (!user || !membership?.client_id) {
-          router.push('/onboarding')
-          return
-        }
-
-        setClientId(membership.client_id)
+        const clientId = membership.client_id
 
         // Parallel: Fetch usage and client data
         const [usageRes, clientRes] = await Promise.all([
@@ -70,7 +70,7 @@ export default function BillingPage() {
       }
     }
     load()
-  }, [supabase, router])
+  }, [supabase, router, membership, userLoading])
 
   const handlePortalClick = async () => {
     setPortalLoading(true)
@@ -113,7 +113,7 @@ export default function BillingPage() {
           <p className="text-muted-foreground">Manage your subscription and billing information</p>
         </div>
 
-        {loading ? (
+        {loading || userLoading ? (
           <Card>
             <CardContent className="p-8 text-center">
               <p className="text-muted-foreground">Loading billing information...</p>
