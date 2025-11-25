@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
 import { useUser } from '@/contexts/user-context'
@@ -21,6 +21,21 @@ export function DashboardLayout({ children, isAdmin: isAdminProp = false }: Dash
   const userName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'User'
   const userEmail = user?.email
 
+  // Close sidebar when window is resized to desktop size
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 768) {
+        setSidebarOpen(false)
+      }
+    }
+    
+    window.addEventListener('resize', handleResize)
+    // Also check on mount
+    handleResize()
+    
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
   return (
     <div className="flex h-screen bg-background">
       {/* Desktop Sidebar */}
@@ -30,16 +45,22 @@ export function DashboardLayout({ children, isAdmin: isAdminProp = false }: Dash
 
       {/* Mobile Sidebar */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-40 md:hidden">
-          <div className="fixed inset-0 bg-black bg-opacity-25" onClick={() => setSidebarOpen(false)} />
-          <div className="fixed left-0 top-0 bottom-0 w-64 z-50">
+        <>
+          <div 
+            className="fixed inset-0 z-40 md:hidden bg-black bg-opacity-25" 
+            onClick={() => setSidebarOpen(false)}
+            role="button"
+            aria-label="Close sidebar"
+            tabIndex={-1}
+          />
+          <div className="fixed left-0 top-0 bottom-0 w-64 z-50 md:hidden bg-card border-r">
             <Sidebar isAdmin={isAdmin} />
           </div>
-        </div>
+        </>
       )}
 
       {/* Main Content */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden relative z-0">
         <Topbar 
           onMenuClick={() => setSidebarOpen(true)} 
           userName={userName}
@@ -47,7 +68,7 @@ export function DashboardLayout({ children, isAdmin: isAdminProp = false }: Dash
         />
         
         {/* Page Content */}
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-auto relative z-0">
           <div className="p-6">
             {children}
           </div>

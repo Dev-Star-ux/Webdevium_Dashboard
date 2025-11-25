@@ -322,6 +322,18 @@ export default function DashboardPage() {
   const [submitTaskOpen, setSubmitTaskOpen] = useState(false)
   const router = useRouter()
 
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <Card>
+          <CardContent className="p-8 text-center">
+            <p className="text-muted-foreground">Loading dashboard...</p>
+          </CardContent>
+        </Card>
+      </DashboardLayout>
+    )
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-6">

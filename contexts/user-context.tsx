@@ -27,7 +27,7 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined)
 
 const CACHE_KEY = 'user_data_cache'
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+const CACHE_DURATION = 30 * 1000 // 30 seconds - short cache for faster navigation, but ensures fresh data on refresh
 
 interface CacheData {
   user: User | null
@@ -44,7 +44,7 @@ function getCache(): CacheData | null {
     if (!cached) return null
     const data: CacheData = JSON.parse(cached)
     const now = Date.now()
-    // Check if cache is still valid (within 5 minutes)
+    // Check if cache is still valid (within cache duration)
     if (now - data.timestamp < CACHE_DURATION) {
       return data
     }
@@ -89,23 +89,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   const loadUserData = useCallback(async (forceRefresh = false) => {
     try {
-      // Check cache first if not forcing refresh
-      if (!forceRefresh) {
-        const cached = getCache()
-        if (cached) {
-          setUser(cached.user)
-          setUserRecord(cached.userRecord)
-          setMembership(cached.membership)
-          setLoading(false)
-          // Still fetch fresh data in background to update cache
-          loadUserData(true).catch(() => {})
-          return
-        }
-      }
-
       setLoading(true)
 
-      // Get user first
+      // Always verify auth session first, even when using cache
       const { data: { user: authUser } } = await supabase.auth.getUser()
 
       if (!authUser) {
@@ -115,6 +101,24 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         clearCache()
         setLoading(false)
         return
+      }
+
+      // Check cache only after auth is verified and if not forcing refresh
+      if (!forceRefresh) {
+        const cached = getCache()
+        // Validate cache: user ID must match current auth user
+        if (cached && cached.user?.id === authUser.id) {
+          setUser(cached.user)
+          setUserRecord(cached.userRecord)
+          setMembership(cached.membership)
+          setLoading(false)
+          // Fetch fresh data in background to update cache (don't await)
+          // Use setTimeout to avoid interfering with current render cycle
+          setTimeout(() => {
+            loadUserData(true).catch(() => {})
+          }, 100)
+          return
+        }
       }
 
       // Parallel: Fetch user record and membership at once
@@ -181,9 +185,26 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
+    // Refresh stale cache when page becomes visible after being hidden
+    const handleVisibilityChange = () => {
+      if (!cancelled && document.visibilityState === 'visible') {
+        const cached = getCache()
+        if (cached) {
+          const cacheAge = Date.now() - cached.timestamp
+          // If cache is older than duration, refresh it
+          if (cacheAge > CACHE_DURATION) {
+            loadUserData(true).catch(() => {})
+          }
+        }
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
       cancelled = true
       subscription.unsubscribe()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [supabase, loadUserData])
 
