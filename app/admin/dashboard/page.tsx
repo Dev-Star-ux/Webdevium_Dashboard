@@ -7,7 +7,7 @@ import { Progress } from '@/components/ui/progress'
 import { Users, CheckSquare, Clock, TrendingUp, AlertTriangle, Activity } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useUser } from '@/contexts/user-context'
 
 type ClientSummary = {
@@ -42,6 +42,7 @@ export default function AdminDashboardPage() {
   })
   const [recentClients, setRecentClients] = useState<any[]>([])
   const router = useRouter()
+  const pathname = usePathname()
   const supabase = getBrowserSupabase()
 
   useEffect(() => {
@@ -162,7 +163,7 @@ export default function AdminDashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [supabase, router, user, isUserAdmin, userRole, userLoading])
+  }, [supabase, router, pathname, user, isUserAdmin, userRole, userLoading])
 
   if (loading || userLoading) {
     return (

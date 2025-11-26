@@ -9,7 +9,7 @@ import { Plus, CreditCard, Clock, CheckCircle, TrendingUp, AlertTriangle } from 
 import { useEffect, useMemo, useState } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { SubmitTaskDialog } from '@/components/tasks/submit-task-dialog'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useUser } from '@/contexts/user-context'
 
 type UsageStatus = 'On Track' | 'Approaching Limit' | 'Exceeded'
@@ -24,6 +24,7 @@ type RecentTask = {
 
 function useDashboardData() {
   const router = useRouter()
+  const pathname = usePathname()
   // Use cached user data from context instead of fetching
   const { user, membership, clientId: contextClientId, userRole, loading: userLoading, isAdmin } = useUser()
   const [loading, setLoading] = useState(true)
@@ -41,6 +42,9 @@ function useDashboardData() {
   }, [])
 
   useEffect(() => {
+    // Reset loading state when route changes
+    setLoading(true)
+    
     // Wait for user data to load
     if (userLoading) return
 
@@ -131,7 +135,7 @@ function useDashboardData() {
     return () => {
       cancelled = true
     }
-  }, [router, monthStart, user, membership, userLoading, isAdmin, userRole])
+  }, [router, pathname, monthStart, user, membership, userLoading, isAdmin, userRole])
 
   const usageStatus: UsageStatus = useMemo(() => {
     if (usagePercent >= 100) return 'Exceeded'

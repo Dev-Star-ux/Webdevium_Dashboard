@@ -9,7 +9,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { SubmitTaskDialog } from '@/components/tasks/submit-task-dialog'
 import { EditTaskDialog } from '@/components/tasks/edit-task-dialog'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useUser } from '@/contexts/user-context'
 import {
   DndContext,
@@ -265,6 +265,8 @@ function KanbanColumn({ title, tasks, canReorder = false, count, status, onEditT
 }
 
 export default function TasksPage() {
+  const router = useRouter()
+  const pathname = usePathname()
   // Use cached user data from context instead of fetching
   const { clientId, userRole, loading: userLoading, membership, isAdmin } = useUser()
   const [loading, setLoading] = useState(true)
@@ -273,7 +275,6 @@ export default function TasksPage() {
   const [editTaskOpen, setEditTaskOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
-  const router = useRouter()
   const supabase = getBrowserSupabase()
 
   const sensors = useSensors(
@@ -289,6 +290,9 @@ export default function TasksPage() {
 
   // Fetch tasks (user data comes from context)
   useEffect(() => {
+    // Reset loading state when route changes
+    setLoading(true)
+    
     // Wait for user data to load
     if (userLoading) return
 
@@ -349,7 +353,7 @@ export default function TasksPage() {
     return () => {
       cancelled = true
     }
-  }, [supabase, router, membership, userLoading])
+  }, [supabase, router, pathname, membership, userLoading])
 
   const onEditTask = (task: Task) => {
     setSelectedTask(task)

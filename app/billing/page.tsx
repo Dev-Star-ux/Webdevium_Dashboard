@@ -8,7 +8,7 @@ import { Progress } from '@/components/ui/progress'
 import { CreditCard, Download, Calendar, DollarSign, AlertTriangle, ExternalLink } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useUser } from '@/contexts/user-context'
 
 export default function BillingPage() {
@@ -22,9 +22,13 @@ export default function BillingPage() {
   const [cycleStart, setCycleStart] = useState<string>('')
   const [portalLoading, setPortalLoading] = useState(false)
   const router = useRouter()
+  const pathname = usePathname()
   const supabase = getBrowserSupabase()
 
   useEffect(() => {
+    // Reset loading state when route changes
+    setLoading(true)
+    
     // Wait for user data to load
     if (userLoading) return
 
@@ -70,7 +74,10 @@ export default function BillingPage() {
       }
     }
     load()
-  }, [supabase, router, membership, userLoading])
+    return () => {
+      // Cleanup on unmount or dependency change
+    }
+  }, [supabase, router, pathname, membership, userLoading])
 
   const handlePortalClick = async () => {
     setPortalLoading(true)

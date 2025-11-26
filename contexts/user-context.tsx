@@ -108,15 +108,30 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         const cached = getCache()
         // Validate cache: user ID must match current auth user
         if (cached && cached.user?.id === authUser.id) {
-          setUser(cached.user)
-          setUserRecord(cached.userRecord)
-          setMembership(cached.membership)
+          // Only update state if we don't already have the data or it's different
+          // This prevents unnecessary re-renders that would cause username recalculation
+          const currentUserKey = user?.id + (user?.email || '') + JSON.stringify(user?.user_metadata || {})
+          const cachedUserKey = cached.user?.id + (cached.user?.email || '') + JSON.stringify(cached.user?.user_metadata || {})
+          
+          if (!user || currentUserKey !== cachedUserKey) {
+            setUser(cached.user)
+          }
+          if (!userRecord || JSON.stringify(userRecord) !== JSON.stringify(cached.userRecord)) {
+            setUserRecord(cached.userRecord)
+          }
+          if (!membership || JSON.stringify(membership) !== JSON.stringify(cached.membership)) {
+            setMembership(cached.membership)
+          }
           setLoading(false)
-          // Fetch fresh data in background to update cache (don't await)
-          // Use setTimeout to avoid interfering with current render cycle
-          setTimeout(() => {
-            loadUserData(true).catch(() => {})
-          }, 100)
+          // Only fetch fresh data in background if cache is stale (older than 5 minutes)
+          const cacheAge = Date.now() - (cached.timestamp || 0)
+          const CACHE_STALE_THRESHOLD = 5 * 60 * 1000 // 5 minutes
+          if (cacheAge > CACHE_STALE_THRESHOLD) {
+            // Fetch fresh data in background only if cache is stale
+            Promise.resolve().then(() => {
+              loadUserData(true).catch(() => {})
+            })
+          }
           return
         }
       }
@@ -136,11 +151,31 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           .maybeSingle(),
       ])
 
-      setUser(authUser)
-      setUserRecord(record)
-      setMembership(mem || null)
+      // Only update state if data actually changed (prevent unnecessary re-renders)
+      // Check if user metadata is the same
+      const userChanged = !user || 
+        user.id !== authUser.id || 
+        JSON.stringify(user.user_metadata) !== JSON.stringify(authUser.user_metadata) ||
+        user.email !== authUser.email
+      
+      const recordChanged = !userRecord || 
+        (userRecord.role !== record?.role)
+      
+      const membershipChanged = !membership || !mem ||
+        membership.client_id !== mem.client_id ||
+        membership.role !== mem.role
 
-      // Update cache
+      if (userChanged) {
+        setUser(authUser)
+      }
+      if (recordChanged) {
+        setUserRecord(record)
+      }
+      if (membershipChanged) {
+        setMembership(mem || null)
+      }
+
+      // Always update cache (even if state didn't change, cache should be fresh)
       setCache({
         user: authUser,
         userRecord: record,

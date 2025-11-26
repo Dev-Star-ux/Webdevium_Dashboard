@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
 import { useUser } from '@/contexts/user-context'
@@ -18,8 +18,15 @@ export function DashboardLayout({ children, isAdmin: isAdminProp = false }: Dash
   // Determine if admin based on role or prop
   const isAdmin = isAdminProp || isUserAdmin
 
-  const userName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'User'
-  const userEmail = user?.email
+  // Memoize userName and userEmail so they don't recalculate on every render
+  // Only recalculate if user object reference changes
+  const userName = useMemo(() => {
+    return user?.user_metadata?.name || user?.email?.split('@')[0] || 'User'
+  }, [user?.user_metadata?.name, user?.email])
+  
+  const userEmail = useMemo(() => {
+    return user?.email
+  }, [user?.email])
 
   // Close sidebar when window is resized to desktop size
   useEffect(() => {
