@@ -4,12 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:clean": "npm run clean && next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "clean": "node -e \"const fs = require('fs'); const path = require('path'); function deleteDir(dir) { if (fs.existsSync(dir)) { fs.readdirSync(dir).forEach(file => { const curPath = path.join(dir, file); if (fs.lstatSync(curPath).isDirectory()) { deleteDir(curPath); } else { fs.unlinkSync(curPath); } }); fs.rmdirSync(dir); } } try { deleteDir('.next'); console.log('Cache cleared successfully'); } catch(e) { console.log('Cache clear completed (some files may be in use)'); }\"",
-    "clean:force": "taskkill /F /IM node.exe 2>nul & timeout /t 1 /nobreak >nul & npm run clean"
+    "lint": "next lint"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
