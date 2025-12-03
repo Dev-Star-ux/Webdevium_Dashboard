@@ -4,7 +4,7 @@ import { DashboardLayout } from '@/components/layout/dashboard-layout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { Users, CheckSquare, Clock, TrendingUp, AlertTriangle, Activity } from 'lucide-react'
+import { Users, CheckSquare, Clock, TrendingUp, AlertTriangle, Activity, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { useRouter, usePathname } from 'next/navigation'
@@ -322,7 +322,15 @@ export default function AdminDashboardPage() {
             <CardTitle className="text-sm font-medium">Quick Actions</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-4">
+              <button
+                onClick={() => router.push('/admin/users')}
+                className="p-4 border rounded-lg text-left hover:bg-accent transition-colors"
+              >
+                <UserPlus className="h-5 w-5 mb-2 text-muted-foreground" />
+                <p className="font-medium text-sm">Manage Users</p>
+                <p className="text-xs text-muted-foreground mt-1">Create and manage user accounts</p>
+              </button>
               <button
                 onClick={() => router.push('/admin/clients')}
                 className="p-4 border rounded-lg text-left hover:bg-accent transition-colors"

@@ -10,7 +10,8 @@ import {
   Users, 
   Settings,
   CreditCard,
-  LogOut
+  LogOut,
+  UserPlus
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getBrowserSupabase } from '@/lib/supabase/client'
@@ -43,6 +44,11 @@ const adminSidebarItems = [
     title: 'Dashboard',
     href: '/admin/dashboard',
     icon: LayoutDashboard,
+  },
+  {
+    title: 'Users',
+    href: '/admin/users',
+    icon: UserPlus,
   },
   {
     title: 'Clients',
