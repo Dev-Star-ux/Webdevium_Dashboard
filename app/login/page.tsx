@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getBrowserSupabase } from '@/lib/supabase/client'
 import { clearUserCache } from '@/contexts/user-context'
-import { clearAllPageCache } from '@/lib/cache/page-cache'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -23,9 +22,8 @@ export default function LoginPage() {
     setLoading(true)
     setError(null)
 
-    // Clear all caches before login so the new session loads fresh (no previous user info)
+    // Clear user cache before login so the new session loads fresh (no previous user info)
     clearUserCache()
-    clearAllPageCache()
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
