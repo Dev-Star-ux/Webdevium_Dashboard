@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getBrowserSupabase } from '@/lib/supabase/client'
+import { clearUserCache } from '@/contexts/user-context'
+import { clearAllPageCache } from '@/lib/cache/page-cache'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,6 +22,10 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setError(null)
+
+    // Clear all caches before login so the new session loads fresh (no previous user info)
+    clearUserCache()
+    clearAllPageCache()
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -57,8 +63,8 @@ export default function LoginPage() {
 
         // ONLY check users.role for global admin/pm (not client_members.role which is per-client)
         if (userRecord && (userRecord.role === 'admin' || userRecord.role === 'pm')) {
-          router.push('/admin/dashboard')
-          router.refresh()
+          // Full page navigation so app remounts with new user (no previous user info)
+          window.location.href = `${window.location.origin}/admin/dashboard`
           return
         }
 
@@ -73,16 +79,13 @@ export default function LoginPage() {
         if (!membership) {
           // No client membership - redirect to onboarding
           // User has role='client' but needs to complete onboarding
-          router.push('/onboarding')
-          router.refresh()
+          window.location.href = `${window.location.origin}/onboarding`
           return
         }
 
         // Regular client user with membership - redirect to client dashboard
-        // Note: Even if client_members.role is 'admin' or 'pm', if users.role is 'client',
-        // they should go to the client dashboard, not admin dashboard
-        router.push('/dashboard')
-        router.refresh()
+        // Full page navigation so app remounts with new user (no previous user info)
+        window.location.href = `${window.location.origin}/dashboard`
       }
     } catch (err) {
       setError('An unexpected error occurred')

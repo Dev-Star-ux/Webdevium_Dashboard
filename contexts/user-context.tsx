@@ -70,7 +70,7 @@ function setCache(data: Omit<CacheData, 'timestamp'>) {
   }
 }
 
-// Helper to clear cache
+// Helper to clear cache (internal)
 function clearCache() {
   if (typeof window === 'undefined') return
   try {
@@ -78,6 +78,11 @@ function clearCache() {
   } catch {
     // Ignore localStorage errors
   }
+}
+
+/** Call before login so the new session doesn't use stale cached user data */
+export function clearUserCache() {
+  clearCache()
 }
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
@@ -204,7 +209,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes to invalidate cache and reload
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (cancelled) return
-
       // Clear cache on auth changes
       clearCache()
 
