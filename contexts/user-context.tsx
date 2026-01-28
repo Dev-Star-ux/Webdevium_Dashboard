@@ -208,16 +208,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       // Clear cache on auth changes
       clearCache()
 
-      if (session?.user) {
-        // Reload user data when auth changes
-        await loadUserData(true)
-      } else {
-        // User logged out
-        setUser(null)
-        setUserRecord(null)
-        setMembership(null)
-        setLoading(false)
-      }
     })
 
     // Refresh stale cache when page becomes visible after being hidden
